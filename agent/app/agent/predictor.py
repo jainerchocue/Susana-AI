@@ -207,6 +207,29 @@ class Predictor:
     si no, explica con tendencia simple.
     """
 
+    def forecast_facts(
+        self,
+        series: list[float],
+        *,
+        label: str = "ingresos",
+        context: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
+        """
+        Devuelve (mensaje, método) donde método es 'random_forest' | 'tendencia' | 'insuficiente'.
+        """
+        context = context or {}
+        if len(series) < 3:
+            msg = (
+                f"Aún no hay suficientes puntos en el tiempo para proyectar {label} "
+                f"(mínimo 3 periodos; ideal al menos {_MIN_ML} para Random Forest)."
+            )
+            return msg, "insuficiente"
+
+        ml = self._message_ml(series, label=label, context=context)
+        if ml:
+            return ml, "random_forest"
+        return self._message_tendencia(series, label=label, context=context), "tendencia"
+
     def forecast_message(
         self,
         series: list[float],
@@ -214,17 +237,8 @@ class Predictor:
         label: str = "ingresos",
         context: dict[str, Any] | None = None,
     ) -> str:
-        context = context or {}
-        if len(series) < 3:
-            return (
-                "Predicción: aún no hay suficientes puntos en el tiempo "
-                f"para proyectar {label} (mínimo 3 periodos; ideal al menos {_MIN_ML} para el modelo ML)."
-            )
-
-        ml_part = self._message_ml(series, label=label, context=context)
-        if ml_part:
-            return ml_part
-        return self._message_tendencia(series, label=label, context=context)
+        msg, _method = self.forecast_facts(series, label=label, context=context)
+        return msg
 
     def _message_ml(
         self,
@@ -256,24 +270,18 @@ class Predictor:
         feats_txt = ", ".join(top_feats) if top_feats else "rezagos recientes"
 
         partes = [
-            f"Predicción ML ({label}) con Random Forest "
-            f"(entrenado en {len(series)} periodos de la serie HIS).",
-            f"Último valor observado: {ultimo:.0f}.",
-            f"Pronóstico próximos {_HORIZON} periodos: {horizon_txt}.",
+            f"Anticipación con Random Forest sobre {len(series)} periodos de {label}: "
+            f"último valor {ultimo:.0f}; próximos {_HORIZON} periodos estimados en {horizon_txt}."
         ]
         if cambio_pct is not None:
             sentido = "alza" if cambio_pct >= 0 else "baja"
             partes.append(
-                f"El modelo anticipa una {sentido} de ~{abs(cambio_pct):.0f}% "
-                f"respecto al último punto (tendencia de fondo: {tendencia})."
+                f"Respecto al último punto, el modelo apunta a una {sentido} "
+                f"de ~{abs(cambio_pct):.0f}% (tendencia de fondo: {tendencia})."
             )
         partes.append(
-            f"Error medio en holdout temporal (MAE): ~{mae:.1f} {label} "
-            f"— variables que más pesan: {feats_txt}."
-        )
-        partes.append(
-            "Úselo para decidir turnos, camas y abastecimiento antes del pico; "
-            "no sustituye el criterio clínico ni la validación del equipo."
+            f"La precisión interna (MAE en holdout) es ~{mae:.1f}; "
+            f"pesan más {feats_txt}."
         )
 
         peak = context.get("peak_day")
@@ -310,32 +318,30 @@ class Predictor:
             pct = ((segunda - primera) / primera) * 100.0
 
         partes: list[str] = [
-            f"Predicción preliminar ({label}): con {len(series)} puntos aún no se "
-            f"entrena Random Forest (hace falta al menos {_MIN_ML}); se usa tendencia explicable."
+            f"Anticipación preliminar de {label} con tendencia explicable "
+            f"({len(series)} puntos; Random Forest pide al menos {_MIN_ML})."
         ]
 
         if tendencia == "creciente":
             if pct is not None:
                 partes.append(
-                    f"Tendencia creciente (~{pct:.0f}% más en la segunda mitad vs la primera)."
+                    f"La segunda mitad del periodo está ~{pct:.0f}% por encima de la primera."
                 )
             else:
-                partes.append("Tendencia creciente.")
+                partes.append("La serie muestra tendencia creciente.")
             ma_txt = f", media móvil {ventana}: {ma_ultimo:.0f}" if ma_ultimo is not None else ""
             partes.append(
-                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f}{ma_txt}). "
-                "Prepare capacidad con antelación."
+                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f}{ma_txt})."
             )
         elif tendencia == "decreciente":
             if pct is not None:
                 partes.append(
-                    f"Tendencia decreciente (~{abs(pct):.0f}% menos en la segunda mitad)."
+                    f"La segunda mitad está ~{abs(pct):.0f}% por debajo de la primera."
                 )
             else:
-                partes.append("Tendencia decreciente.")
+                partes.append("La serie muestra tendencia decreciente.")
             partes.append(
-                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f}). "
-                "Puede reasignar recursos con cautela."
+                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f})."
             )
         else:
             ma_txt = f", media móvil {ventana}: {ma_ultimo:.0f}" if ma_ultimo is not None else ""
