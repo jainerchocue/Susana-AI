@@ -32,10 +32,10 @@ class Settings(BaseSettings):
     # LLM (OpenRouter — OpenAI compatible)
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_model: str = "openai/gpt-4o-mini"
-    llm_timeout_seconds: float = 12.0
-    llm_max_tokens: int = 2048
-    llm_temperature: float = 0.1
+    llm_model: str = "openai/gpt-6-luna-pro"
+    llm_timeout_seconds: float = 16.0
+    llm_max_tokens: int = 700
+    llm_temperature: float = 0.2
     llm_enabled: bool = True
     # Reescritura natural de la respuesta verificada (se descarta si altera los hechos).
     llm_polish: bool = True
