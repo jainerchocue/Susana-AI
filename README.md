@@ -1,12 +1,21 @@
-# Hospital Intelligence — Backend
+# Hospital Intelligence — Backend + Agent
 
 API Gateway/BFF para el hackathon *Hospital Intelligence*: sirve al frontend en
 React y es el **único** intermediario autorizado con el agente IA en Python.
 Node tiene toda la autoridad — el agente solo *propone* consultas en un DSL
-JSON que Node valida, ejecuta y audita. Detalle completo en
-[`docs/architecture.md`](docs/architecture.md).
+JSON que Node valida, ejecuta y audita.
 
-Stack: Node ≥22, Express 5, TypeScript strict, Prisma 6 + PostgreSQL, Zod 3,
+## Carpetas
+
+| Carpeta | Rol |
+|---------|-----|
+| `src/` | Backend Node (`:3000` público, `:3001` interno) |
+| `agent/` | Servicio Python (`:8000`) — contrato `GET /health` + `POST /v1/ask` |
+| `frontend/` | React (cuando exista) |
+
+Detalle del agente: [`agent/README.md`](agent/README.md).
+
+Stack Node: Node ≥22, Express 5, TypeScript strict, Prisma 6 + PostgreSQL, Zod 3,
 Better Auth, Pino, Vitest + Supertest. Autenticación solo por credenciales
 (email + contraseña, TOTP opcional); autorización propia por permisos
 (`recurso:accion`) con guardas de no-escalada — ver
@@ -34,8 +43,9 @@ npm run dev                                  # API pública :3000 + API interna 
 El seed exige un `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` propios en
 producción: el valor de ejemplo está publicado en este repositorio y el
 arranque lo rechaza. Sin `AGENT_URL` el asistente responde `503` (no hace
-falta Python corriendo para trabajar en el resto de la API); para probarlo en
-local sin el agente real, `npm run agent:mock` (puerto 8000) implementa el
+falta Python corriendo para trabajar en el resto de la API); para el agente
+**real** del equipo AI usa la carpeta [`agent/`](agent/) (`uvicorn` en `:8000`).
+Para un stub mínimo sin Python, `npm run agent:mock` (puerto 8000) implementa el
 mismo contrato con datos de ejemplo — ver `docs/agent-integration.md`.
 
 Los datos clínicos reales del HIS (dashboard, ocupación, medicamentos,
