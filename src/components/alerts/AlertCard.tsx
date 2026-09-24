@@ -1,9 +1,9 @@
 import type { Alert, AlertStatus } from '@/types'
 import { Button, Card, CardBody } from '@/components/ui'
 import { IconCheck, IconEye } from '@/components/ui/icons'
-import { alertTypeLabel } from '@/constants/alertTypes'
+import { alertMetricLabel, alertTypeLabel, formatAlertMetricValue } from '@/constants/alertTypes'
 import { cn } from '@/utils/cn'
-import { formatNumber, formatRelativeTime } from '@/utils/format'
+import { formatRelativeTime } from '@/utils/format'
 import { AlertSeverityBadge } from './AlertSeverityBadge'
 import { AlertStatusBadge } from './AlertStatusBadge'
 
@@ -19,13 +19,20 @@ export interface AlertCardProps {
   /** PATCH /alerts/{id} { status } — solo ACKNOWLEDGED o RESOLVED son transiciones válidas desde la UI. */
   onUpdateStatus?: (id: string, status: Extract<AlertStatus, 'ACKNOWLEDGED' | 'RESOLVED'>) => void
   isUpdating?: boolean
+  /** Abre el modal de detalle con contexto completo (descripción del tipo, umbral, línea de tiempo). */
+  onOpenDetail?: (alert: Alert) => void
 }
 
-export function AlertCard({ alert, canManage, onUpdateStatus, isUpdating }: AlertCardProps) {
+export function AlertCard({ alert, canManage, onUpdateStatus, isUpdating, onOpenDetail }: AlertCardProps) {
   return (
     <Card
-      interactive
-      className={cn('animate-fade-up border-l-4', BORDER_COLOR_BY_SEVERITY[alert.severity] ?? DEFAULT_BORDER_COLOR)}
+      interactive={Boolean(onOpenDetail)}
+      onClick={onOpenDetail ? () => onOpenDetail(alert) : undefined}
+      className={cn(
+        'animate-fade-up border-l-4',
+        BORDER_COLOR_BY_SEVERITY[alert.severity] ?? DEFAULT_BORDER_COLOR,
+        onOpenDetail && 'cursor-pointer',
+      )}
     >
       <CardBody className="flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -45,13 +52,13 @@ export function AlertCard({ alert, canManage, onUpdateStatus, isUpdating }: Aler
             {alert.scopeId ? ` (${alert.scopeId})` : ''}
           </span>
           <span>
-            <span className="font-medium text-ink-700">Métrica:</span> {alert.metric} = {formatNumber(alert.value)}{' '}
-            (umbral {formatNumber(alert.threshold)})
+            <span className="font-medium text-ink-700">Métrica:</span> {alertMetricLabel(alert.metric)} ={' '}
+            {formatAlertMetricValue(alert.metric, alert.value)} (umbral {formatAlertMetricValue(alert.metric, alert.threshold)})
           </span>
         </div>
 
         {alert.status !== 'RESOLVED' && canManage && (
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
             {alert.status === 'OPEN' && (
               <Button
                 size="sm"

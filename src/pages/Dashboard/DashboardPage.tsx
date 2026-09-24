@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PERMISSIONS, ROUTES, queryKeys } from '@/constants'
 import { alertsApi } from '@/services/api'
@@ -13,10 +14,11 @@ import {
 } from '@/features/dashboard/hooks/useDashboardSummary'
 import { KPIGrid } from '@/components/dashboard'
 import { OccupancyTrendChart, WaitTimesChart } from '@/components/charts'
-import { AlertsList } from '@/components/alerts'
+import { AlertDetailModal, AlertsList } from '@/components/alerts'
 import { Card, CardBody, CardHeader } from '@/components/ui'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { buildPeriodLabel, formatLongDate } from '@/utils/date'
+import type { Alert } from '@/types'
 
 const RECENT_ALERTS_PARAMS = { limit: 5 }
 
@@ -44,6 +46,9 @@ export default function DashboardPage() {
     queryKey: queryKeys.alerts.list(RECENT_ALERTS_PARAMS),
     queryFn: () => alertsApi.list(RECENT_ALERTS_PARAMS),
   })
+
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
 
   const kpis = summaryQuery.data ? buildDashboardKpis(summaryQuery.data) : []
   const isRefreshing =
@@ -113,10 +118,16 @@ export default function DashboardPage() {
               isError={alertsQuery.isError}
               error={alertsQuery.error}
               onRetry={alertsQuery.refetch}
+              onOpenDetail={(alert) => {
+                setSelectedAlert(alert)
+                setIsDetailOpen(true)
+              }}
             />
           </CardBody>
         </Card>
       </RequirePermission>
+
+      <AlertDetailModal open={isDetailOpen} onOpenChange={setIsDetailOpen} alert={selectedAlert} />
     </div>
   )
 }

@@ -1,13 +1,15 @@
+import { useState } from 'react'
 import { ActiveFilterChips } from '@/components/filters/ActiveFilterChips'
+import { AlertDetailModal } from '@/components/alerts/AlertDetailModal'
 import { AlertSeverityBadge } from '@/components/alerts/AlertSeverityBadge'
 import { AlertStatusBadge } from '@/components/alerts/AlertStatusBadge'
 import { DataTable, type DataTableColumn } from '@/components/tables'
-import { Button, PageHeader, Select, type SelectOption } from '@/components/ui'
-import { IconCheck, IconEye } from '@/components/ui/icons'
-import { alertTypeLabel } from '@/constants/alertTypes'
+import { Button, PageHeader, Select, Tooltip, type SelectOption } from '@/components/ui'
+import { IconCheck, IconEye, IconInfo } from '@/components/ui/icons'
+import { alertMetricLabel, alertTypeLabel, formatAlertMetricValue } from '@/constants/alertTypes'
 import { useAlertsCenter } from '@/features/alerts/hooks/useAlertsCenter'
 import type { Alert, AlertSeverity, AlertStatus } from '@/types'
-import { formatNumber, formatRelativeTime } from '@/utils/format'
+import { formatRelativeTime } from '@/utils/format'
 
 const STATUS_LABELS: Record<AlertStatus, string> = {
   OPEN: 'Abierta',
@@ -53,6 +55,14 @@ export default function AlertsPage() {
     canManage,
   } = useAlertsCenter()
 
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  function openDetail(alert: Alert) {
+    setSelectedAlert(alert)
+    setIsDetailOpen(true)
+  }
+
   const activeFilters = [
     status && { key: 'status', label: `Estado: ${STATUS_LABELS[status]}`, onClear: () => setStatus(null) },
     severity && { key: 'severity', label: `Severidad: ${SEVERITY_LABELS[severity]}`, onClear: () => setSeverity(null) },
@@ -90,11 +100,29 @@ export default function AlertsPage() {
       header: 'Métrica',
       cell: (row) => (
         <span>
-          {row.metric} = {formatNumber(row.value)} <span className="text-ink-500">(umbral {formatNumber(row.threshold)})</span>
+          {alertMetricLabel(row.metric)}: {formatAlertMetricValue(row.metric, row.value)}{' '}
+          <span className="text-ink-500">(umbral {formatAlertMetricValue(row.metric, row.threshold)})</span>
         </span>
       ),
     },
     { id: 'lastSeenAt', header: 'Última vez', cell: (row) => formatRelativeTime(row.lastSeenAt) },
+    {
+      id: 'detail',
+      header: '',
+      cell: (row) => (
+        <Tooltip label="Ver detalle">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label={`Ver detalle de la alerta ${alertTypeLabel(row.type)}`}
+            onClick={() => openDetail(row)}
+          >
+            <IconInfo className="h-4 w-4" />
+          </Button>
+        </Tooltip>
+      ),
+    },
     ...(canManage
       ? [
           {
@@ -170,6 +198,15 @@ export default function AlertsPage() {
         currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
+      />
+
+      <AlertDetailModal
+        open={isDetailOpen}
+        onOpenChange={setIsDetailOpen}
+        alert={selectedAlert}
+        canManage={canManage}
+        onUpdateStatus={updateStatus}
+        isUpdating={selectedAlert ? updatingId === selectedAlert.id : false}
       />
     </div>
   )

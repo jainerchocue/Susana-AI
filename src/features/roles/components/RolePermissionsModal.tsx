@@ -12,6 +12,44 @@ interface RolePermissionsModalProps {
   isSaving: boolean
 }
 
+/** Traducción de los grupos del catálogo (llaves crudas del backend, ej. "alerts"). */
+const GROUP_LABELS: Record<string, string> = {
+  alerts: 'Alertas',
+  analytics: 'Analítica',
+  assistant: 'Asistente IA',
+  audit: 'Auditoría',
+  dashboard: 'Panel general',
+  data: 'Datos clínicos (HIS)',
+  medications: 'Medicamentos',
+  patients: 'Pacientes',
+  permissions: 'Permisos',
+  roles: 'Roles',
+  services: 'Servicios',
+  surgeries: 'Cirugías',
+  system: 'Sistema',
+  users: 'Usuarios',
+}
+
+/** Traducción de la acción (parte tras los ":" de ej. "alerts:manage") a una etiqueta corta. */
+const ACTION_LABELS: Record<string, string> = {
+  read: 'Ver',
+  manage: 'Gestionar',
+  create: 'Crear',
+  update: 'Editar',
+  delete: 'Eliminar',
+  export: 'Exportar',
+  import: 'Importar',
+  use: 'Usar',
+  advanced: 'Uso avanzado',
+  'assign-roles': 'Asignar roles',
+  'assign-permissions': 'Asignar permisos',
+}
+
+function actionLabel(action: string): string {
+  const suffix = action.split(':')[1] ?? action
+  return ACTION_LABELS[suffix] ?? suffix.replace(/-/g, ' ')
+}
+
 /** El padre debe pasar `key={role?.id}` para reiniciar la selección al cambiar de rol. */
 export function RolePermissionsModal({ open, onOpenChange, role, onSave, isSaving }: RolePermissionsModalProps) {
   const { groups, isLoading } = usePermissionsCatalog()
@@ -39,26 +77,33 @@ export function RolePermissionsModal({ open, onOpenChange, role, onSave, isSavin
         <div className="flex max-h-96 flex-col gap-4 overflow-y-auto">
           {groups.map((group) => (
             <div key={group.group}>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{group.group}</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                {GROUP_LABELS[group.group] ?? group.group}
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {group.permissions.map((permission) => {
-                  const key = `${permission.group}:${permission.action}`
-                  const checked = selected.includes(key)
+                  const checked = selected.includes(permission.action)
                   return (
-                    <button
+                    <label
                       key={permission.id}
-                      type="button"
-                      title={permission.description ?? undefined}
-                      onClick={() => toggle(key)}
                       className={cn(
-                        'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-                        checked
-                          ? 'border-brand-600 bg-brand-50 text-brand-700'
-                          : 'border-surface-100 text-ink-700 hover:border-brand-200',
+                        'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors',
+                        checked ? 'border-brand-600 bg-brand-50' : 'border-surface-100 hover:border-brand-200',
                       )}
                     >
-                      {permission.action}
-                    </button>
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-brand-600"
+                        checked={checked}
+                        onChange={() => toggle(permission.action)}
+                      />
+                      <span className="flex flex-col">
+                        <span className={cn('text-sm font-medium', checked ? 'text-brand-700' : 'text-ink-900')}>
+                          {actionLabel(permission.action)}
+                        </span>
+                        <span className="text-xs text-ink-500">{permission.description ?? permission.action}</span>
+                      </span>
+                    </label>
                   )
                 })}
               </div>

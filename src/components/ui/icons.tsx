@@ -301,6 +301,16 @@ export function IconKey(props: IconProps) {
   )
 }
 
+export function IconInfo(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8h.01" />
+      <path d="M11 12h1v5h1" />
+    </svg>
+  )
+}
+
 export function IconChevronDown(props: IconProps) {
   return (
     <svg {...base(props)}>

@@ -3,6 +3,7 @@ export type AlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'
 export type AlertType =
   | 'LOW_STOCK'
   | 'HIGH_OCCUPANCY'
+  | 'LONG_WAIT'
   | 'DEMAND_SPIKE'
   | 'SURGERY_CANCELLATIONS'
   | (string & {})

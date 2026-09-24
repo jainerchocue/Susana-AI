@@ -12,6 +12,7 @@ export interface AlertsListProps {
   canManage?: boolean
   onUpdateStatus?: (id: string, status: Extract<AlertStatus, 'ACKNOWLEDGED' | 'RESOLVED'>) => void
   updatingId?: string | null
+  onOpenDetail?: (alert: Alert) => void
 }
 
 export function AlertsList({
@@ -23,6 +24,7 @@ export function AlertsList({
   canManage,
   onUpdateStatus,
   updatingId,
+  onOpenDetail,
 }: AlertsListProps) {
   if (isLoading) {
     return (
@@ -56,6 +58,7 @@ export function AlertsList({
           canManage={canManage}
           onUpdateStatus={onUpdateStatus}
           isUpdating={updatingId === alert.id}
+          onOpenDetail={onOpenDetail}
         />
       ))}
     </div>
