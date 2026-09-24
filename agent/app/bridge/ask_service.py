@@ -420,8 +420,8 @@ async def handle_ask(
 
     forecast_text = ""
     forecast_method: str | None = None
-    # Serie temporal / ML solo si la pregunta pide proyección o hay señal temporal
-    if _es_proyeccion(question) or intent in {"OCCUPANCY", "DEMAND", "WAIT_TIME"}:
+    # ML solo cuando la pregunta pide proyección / evolución (no en las 4 oficiales literales)
+    if _es_proyeccion(question):
         try:
             serie_query = consulta_serie_temporal(question, catalog, max_rows=min(max_rows, 60))
             serie_resultado = resultado

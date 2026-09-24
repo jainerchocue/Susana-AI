@@ -34,6 +34,15 @@ class Recommender:
     def _for_medications(self, rows: list[dict[str, Any]]) -> list[str]:
         tips: list[str] = []
         for row in rows[:3]:
+            # Alertas LOW_STOCK: value ≈ días de inventario
+            dias = row.get("min_value") if row.get("min_value") is not None else row.get("value")
+            codigo = row.get("scope_id") or row.get("code")
+            if codigo is not None and dias is not None and "sum_quantity" not in row:
+                tips.append(
+                    f"Conviene reabastecer el código {codigo}: "
+                    f"se estiman cerca de {dias} días de inventario."
+                )
+                continue
             name = (
                 row.get("NombreServicio")
                 or row.get("medicamento")
