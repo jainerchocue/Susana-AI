@@ -41,7 +41,11 @@ async def ejecutar_en_node(ticket: str, query: dict[str, Any]) -> dict[str, Any]
         return None
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        logger.warning("Node interno HTTP %s", resp.status_code)
+        logger.warning(
+            "Node interno HTTP %s: %s",
+            resp.status_code,
+            (resp.text or "")[:500],
+        )
         return None
 
     try:

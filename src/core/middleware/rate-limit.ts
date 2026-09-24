@@ -21,9 +21,32 @@ function crearStore(prefijo: string): Options['store'] | undefined {
     logger.warn({ prefijo }, 'Rate limit en memoria: solo valido con UNA instancia');
     return undefined;
   }
+  /**
+   * Redis arranca en paralelo al import de este modulo. Con
+   * `enableOfflineQueue: false`, un SCRIPT LOAD al construir RedisStore
+   * falla si aun no hay conexion y el store queda muerto el resto del
+   * proceso (login/auth en 500). Esperamos a `ready` antes de cada comando.
+   */
+  const sendCommand = async (...args: string[]): Promise<never> => {
+    if (cliente.status !== 'ready') {
+      await new Promise<void>((resolve, reject) => {
+        const onReady = () => {
+          cliente.off('error', onError);
+          resolve();
+        };
+        const onError = (err: Error) => {
+          cliente.off('ready', onReady);
+          reject(err);
+        };
+        cliente.once('ready', onReady);
+        cliente.once('error', onError);
+      });
+    }
+    return cliente.call(...(args as [string, ...string[]])) as Promise<never>;
+  };
   return new RedisStore({
     prefix: `rl:${prefijo}:`,
-    sendCommand: (...args: string[]) => cliente.call(...(args as [string, ...string[]])) as Promise<never>,
+    sendCommand,
   });
 }
 
