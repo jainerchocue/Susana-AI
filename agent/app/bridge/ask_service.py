@@ -38,12 +38,37 @@ _SYSTEM_CHAT = """Eres Susana-AI, analista de inteligencia operativa del Hospita
 Hablas con directivos y coordinación en español, tono profesional de gestión en salud (no clínico).
 
 REGLAS:
-1. Responde SOLO con cifras, unidades y hechos del JSON "hechos". No inventes datos.
-2. Si falta un dato, omítelo; no inventes umbrales, camas totales ni causas clínicas.
-3. Sin PII, sin SQL, sin consejo clínico (diagnóstico/tratamiento/dosis).
-4. Si hay predicción_ml, intégrala como anticipación operativa y di el método en una frase.
-5. Prosa fluida (90-150 palabras), sin viñetas etiquetadas tipo DATO:/RECOMENDACIÓN:.
+1. Responde DIRECTAMENTE la "pregunta". El primer párrafo debe contestarla.
+2. Si foco="proyeccion" o la pregunta habla de evolución/próximos días/tendencia:
+   empieza por prediccion_ml (números y sentido: alza/baja/estable). El ranking es solo contexto breve al final.
+3. Usa SOLO cifras y nombres del JSON "hechos". No inventes datos ni jerga (nada de MAE, lag, holdout).
+4. Sin PII, sin SQL, sin consejo clínico.
+5. Prosa fluida (80-130 palabras). Una recomendación operativa como mucho, si aporta.
 """
+
+
+def _es_proyeccion(question: str) -> bool:
+    q = question.lower()
+    return any(
+        k in q
+        for k in (
+            "evolucion",
+            "evolución",
+            "evolucionar",
+            "próxim",
+            "proxim",
+            "predic",
+            "anticip",
+            "futur",
+            "tendencia",
+            "cómo irá",
+            "como ira",
+            "cómo va a",
+            "como va a",
+            "próximos días",
+            "proximos dias",
+        )
+    )
 
 
 def _etiqueta_intent(intent: str) -> str:
@@ -57,7 +82,7 @@ def _etiqueta_intent(intent: str) -> str:
 
 
 def _plantilla(brief: AnswerBrief) -> str:
-    """Fallback determinístico si OpenRouter no responde."""
+    """Fallback determinístico si OpenRouter no responde — prioriza la pregunta."""
     if brief.clarify:
         return brief.clarify[:_MAX_ANSWER]
 
@@ -70,11 +95,25 @@ def _plantilla(brief: AnswerBrief) -> str:
             parts.append(brief.forecast)
         if brief.recommendations:
             parts.append(brief.recommendations[0])
-        if brief.limitations:
-            parts.append(brief.limitations[0])
         return " ".join(parts)[:_MAX_ANSWER]
 
+    proy = _es_proyeccion(brief.question)
     partes: list[str] = []
+
+    # Pregunta de evolución → primero la predicción
+    if proy and brief.forecast:
+        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
+        if brief.ranking:
+            partes.append(
+                "Como contexto del corte actual, las unidades con más carga son: "
+                + "; ".join(brief.ranking[:3])
+                + "."
+            )
+        if brief.recommendations:
+            tip = brief.recommendations[0]
+            partes.append(tip if tip.endswith(".") else tip + ".")
+        return " ".join(partes)[:_MAX_ANSWER]
+
     if brief.headline:
         partes.append(brief.headline)
     elif brief.points:
@@ -85,7 +124,7 @@ def _plantilla(brief: AnswerBrief) -> str:
             + "; ".join(f"{p.label}: {p.value}" for p in brief.points[:4])
             + "."
         )
-    if brief.ranking and len(brief.ranking) > 1:
+    if brief.ranking and len(brief.ranking) > 1 and not proy:
         partes.append("En el detalle destacan: " + "; ".join(brief.ranking[:3]) + ".")
     if brief.root_cause:
         partes.append(brief.root_cause)
@@ -94,8 +133,6 @@ def _plantilla(brief: AnswerBrief) -> str:
     if brief.recommendations:
         tip = brief.recommendations[0]
         partes.append(tip if tip.endswith(".") else tip + ".")
-    if brief.limitations:
-        partes.append(brief.limitations[0])
     return " ".join(p for p in partes if p).strip()[:_MAX_ANSWER]
 
 
@@ -136,23 +173,35 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
     if not client.is_available or brief.empty:
         return None
 
-    hechos = {
+    proy = _es_proyeccion(brief.question)
+    hechos: dict[str, Any] = {
         "pregunta": brief.question,
+        "foco": "proyeccion" if proy and brief.forecast else "descriptivo",
         "intent": brief.intent,
         "fuente": brief.dataset_label,
-        "registros": brief.row_count,
-        "dato_principal": brief.headline,
-        "puntos": [p.model_dump() for p in brief.points],
-        "ranking": brief.ranking[:5],
-        "prediccion_ml": brief.forecast,
-        "metodo_ml": brief.forecast_method,
-        "recomendacion_operativa": brief.recommendations[:2],
-        "observacion": brief.root_cause,
-        "limitaciones": brief.limitations[:2],
     }
+    if proy and brief.forecast:
+        hechos["prediccion_ml"] = brief.forecast
+        hechos["metodo_ml"] = brief.forecast_method
+        hechos["contexto_unidades"] = brief.ranking[:3]
+        if brief.recommendations:
+            hechos["recomendacion_operativa"] = brief.recommendations[:1]
+    else:
+        hechos.update(
+            {
+                "registros": brief.row_count,
+                "dato_principal": brief.headline,
+                "puntos": [p.model_dump() for p in brief.points],
+                "ranking": brief.ranking[:5],
+                "prediccion_ml": brief.forecast,
+                "metodo_ml": brief.forecast_method,
+                "recomendacion_operativa": brief.recommendations[:2],
+                "observacion": brief.root_cause,
+            }
+        )
     user = (
-        "Redacta la respuesta del chat para operaciones del hospital.\n"
-        "Hechos verificados (única fuente; no inventes nada fuera de aquí):\n"
+        "Contesta la pregunta del usuario con los hechos. "
+        "Si foco=proyeccion, el primer párrafo DEBE ser la predicción.\n"
         f"{json.dumps(hechos, ensure_ascii=False)}"
     )
     try:

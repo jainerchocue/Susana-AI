@@ -53,7 +53,8 @@ class Recommender:
         return tips
 
     def _for_occupancy(self, rows: list[dict[str, Any]]) -> list[str]:
-        first = rows[0]
+        ranked = self._top_by_metric(rows)
+        first = ranked[0] if ranked else rows[0]
         occupied = first.get("camas_ocupadas")
         unit = first.get("unit")
         if occupied is not None:
@@ -70,6 +71,22 @@ class Recommender:
             "Priorice revisar camas en las unidades con mayor conteo; "
             "si la anticipación marca alza, active contingencia de capacidad."
         ]
+
+    @staticmethod
+    def _top_by_metric(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows or not isinstance(rows[0], dict):
+            return list(rows)
+
+        def score(fila: dict[str, Any]) -> float:
+            for k in ("count_all", "count", "total", "camas_ocupadas", "sum_quantity"):
+                if k in fila and fila[k] is not None:
+                    try:
+                        return float(fila[k])
+                    except (TypeError, ValueError):
+                        continue
+            return -1.0
+
+        return sorted(rows, key=score, reverse=True)
 
     def _for_wait_time(self, rows: list[dict[str, Any]]) -> list[str]:
         first = rows[0]
