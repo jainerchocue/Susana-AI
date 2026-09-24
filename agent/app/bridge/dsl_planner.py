@@ -15,6 +15,44 @@ def _datasets(catalog: list[dict[str, Any]]) -> set[str]:
     return {str(d.get("dataset")) for d in catalog if d.get("dataset")}
 
 
+def consulta_serie_temporal(
+    question: str,
+    catalog: list[dict[str, Any]],
+    max_rows: int = 60,
+) -> dict[str, Any] | None:
+    """
+    Segunda consulta solo para anticipar: serie diaria (o por periodo) sobre
+    la que el Predictor calcula tendencia. No sustituye la respuesta principal.
+    """
+    disponibles = _datasets(catalog)
+    texto = _norm(question)
+    limit = min(max(7, max_rows), 60)
+
+    if ("medicamento" in texto or "inventario" in texto or "stock" in texto) and "medications" in disponibles:
+        # Sin dimensión temporal fiable en medications → no forzar serie.
+        return None
+
+    if ("espera" in texto or "triage" in texto) and "admissions" in disponibles:
+        return {
+            "dataset": "admissions",
+            "metrics": [{"agg": "avg", "field": "wait_minutes"}],
+            "groupBy": [{"field": "admitted_at", "grain": "day"}],
+            "orderBy": [{"ref": "admitted_at", "dir": "asc"}],
+            "limit": limit,
+        }
+
+    if "admissions" in disponibles:
+        return {
+            "dataset": "admissions",
+            "metrics": [{"agg": "count"}],
+            "groupBy": [{"field": "admitted_at", "grain": "day"}],
+            "orderBy": [{"ref": "admitted_at", "dir": "asc"}],
+            "limit": limit,
+        }
+
+    return None
+
+
 def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any] | None:
     """
     Planificador determinístico (como agent-mock.mjs).
@@ -23,6 +61,20 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
     disponibles = _datasets(catalog)
     texto = _norm(question)
     limit = min(max(1, max_rows), 100)
+
+    # Si piden predicción/tendencia de forma explícita, la consulta principal
+    # ya es la serie temporal (el Predictor enriquecerá igual).
+    quiere_serie = any(
+        k in texto for k in ("predic", "tendenc", "proyecc", "anticip", "pronostic", "forecast")
+    )
+    if quiere_serie and "admissions" in disponibles:
+        return {
+            "dataset": "admissions",
+            "metrics": [{"agg": "count"}],
+            "groupBy": [{"field": "admitted_at", "grain": "day"}],
+            "orderBy": [{"ref": "admitted_at", "dir": "asc"}],
+            "limit": min(limit, 60),
+        }
 
     if ("medicamento" in texto or "inventario" in texto or "farmacia" in texto or "stock" in texto) and "medications" in disponibles:
         return {
