@@ -21,12 +21,25 @@ Better Auth, Pino, Vitest + Supertest. Autenticación solo por credenciales
 (`recurso:accion`) con guardas de no-escalada — ver
 [`docs/rbac.md`](docs/rbac.md) y [`docs/security.md`](docs/security.md).
 
-> Estado del repo: `users`, `roles`, `permissions`, `audit`, `health`,
-> `alerts` (motor de reglas conectado a las métricas reales, job periódico +
-> `POST /alerts/evaluate`), `assistant` (agente + API interna, 5 datasets),
-> `dashboard`, `analytics`, `medications`, `surgeries` y los datos reales del
-> HIS (`his_*`, importados en `hospital_local`) están implementados. Detalle
-> completo en `docs/architecture.md` y `docs/database.md`.
+> Estado del repo: `users`, `roles`, `permissions`, `audit` (+ `GET
+> /audit/{id}`), `health`, `alerts` (motor de reglas conectado a las métricas
+> reales, job periódico, `POST /alerts/evaluate`, reglas editables en BD por
+> `PATCH /alerts/rules/:type`, alertas manuales), `assistant` (agente + API
+> interna, 5 datasets), `dashboard`, `analytics`, `medications` (catálogo,
+> stock y dispensaciones con CRUD completo), `surgeries` y **CRUD completo**
+> sobre los 6 recursos de datos HIS (`patients`, `admissions`, `triages`,
+> `service-records`, `procedures`, `surgery-schedules`) más carga masiva por
+> CSV vía `POST /imports/:table` están implementados — 93 endpoints propios,
+> ver `docs/api.md` para el índice completo con ejemplos reales. Detalle de
+> arquitectura en `docs/architecture.md` y del modelo de datos en
+> `docs/database.md`.
+>
+> **Bloqueador conocido:** `src/modules/audit/audit.routes.ts` referencia una
+> variable `controller` inexistente (el import se llama `auditController`);
+> como las rutas se cargan de forma síncrona (`core/router/autoload.ts`, sin
+> `try/catch` por módulo), esto impide que `createApp()` arranque — y con
+> ella, `npm run dev`, `npm test` y `npm run test:e2e`. Detalle y arreglo de
+> una línea en `docs/testing.md`.
 
 ---
 
@@ -116,30 +129,27 @@ día que la librería cambie). Equivalencia con nombres de JWT clásicos:
 | GET | `/api/v1/users/me` | *me* |
 | POST | `/api/v1/auth/two-factor/verify-totp` | segundo paso del login (MFA) |
 
-### Negocio — nuestros, en `openapi.json`
+### Negocio — nuestros, en `openapi.json` (93 endpoints)
 
-| Método | Ruta | Permiso |
+| Recurso | Rutas | Permiso base |
 |---|---|---|
-| GET / PATCH | `/api/v1/users/me` | sesión |
-| GET / POST | `/api/v1/users` | `users:read` / `users:create` |
-| GET / PATCH / DELETE | `/api/v1/users/:id` | `users:*` |
-| PUT | `/api/v1/users/:id/roles` | `users:assign-roles` |
-| GET / POST / PATCH / DELETE | `/api/v1/roles` | `roles:*` |
-| PUT | `/api/v1/roles/:id/permissions` | `roles:assign-permissions` |
-| GET | `/api/v1/permissions` | `permissions:read` |
-| GET | `/api/v1/audit` | `audit:read` |
-| GET / GET / PATCH / POST | `/api/v1/alerts`, `/:id`, `/:id`, `/evaluate` | `alerts:read` / `alerts:read` / `alerts:manage` / `alerts:manage` |
-| POST | `/api/v1/assistant/query` | `assistant:use` |
-| GET | `/api/v1/dashboard/summary` · `/occupancy` · `/wait-times` · `/demand` | `dashboard:read` (+ `services:read` en las tres últimas) |
-| GET | `/api/v1/analytics/services` · `/triage` (+ `/export`) | `analytics:read` + `services:read` (+ `analytics:export` en los export) |
-| GET / PUT | `/api/v1/medications`, `/critical`, `/consumption`, `/:code/stock` | `medications:read` / `medications:manage` |
-| GET | `/api/v1/analytics/surgeries` (+ `/export`) | `analytics:read` + `surgeries:read` (+ `analytics:export`) |
-| GET | `/api/v1/health` · `/ready` · `/startup` | público |
+| `users` / `roles` / `permissions` / `audit` | CRUD de usuarios y roles, catálogo de permisos (solo lectura), auditoría (lectura + `GET /audit/:id`) | `users:*` / `roles:*` / `permissions:read` / `audit:read` |
+| `patients` | CRUD, sin `birthDate` en la salida, cada lectura auditada | `patients:read` (lectura) / `data:manage` (escritura) |
+| `admissions` | CRUD + `PUT`/`DELETE .../first-care` | `services:read` / `data:manage` |
+| `triages`, `service-records`, `procedures`, `surgery-schedules` | CRUD completo (claves naturales del HIS, salvo `surgery-schedules` con id autoincremental) | `services:read`/`surgeries:read` (lectura) / `data:manage` (escritura) |
+| `medications` | Catálogo, stock (listado + PUT/DELETE), dispensaciones (CRUD), detalle con riesgo | `medications:read`/`manage`, dispensaciones con `data:manage` |
+| `alerts` | Listado/ack/resolver, alerta manual, reglas del motor en BD (`GET/PATCH /alerts/rules/:type`) | `alerts:read`/`manage`, reglas con `system:manage` |
+| `imports` | Subida de CSV (`POST /imports/:table`, 202 + job en 2º plano), sondeo, plantillas, borrado de metadatos | `data:import` |
+| `assistant` | Pregunta al agente IA (DSL validado y ejecutado por Node) | `assistant:use`/`advanced` |
+| `dashboard`, `analytics`, `surgeries` (agregado) | Paneles y analítica de solo lectura, con exportación CSV | `dashboard:read`, `analytics:read`/`export` + ámbito |
+| `health` | Liveness/readiness/startup | público |
 
 El asistente y las alertas filtran, además del permiso, por **ámbito**: un
 `FARMACIA` con `alerts:read` solo ve alertas de tipo `medication` (ver
-`docs/rbac.md`). Todos los endpoints de dashboard/analítica/medicamentos/
-cirugías, con permisos, parámetros y un ejemplo de respuesta real: `docs/api.md`.
+`docs/rbac.md`). **Todos** los 93 endpoints, con método, ruta, permiso,
+parámetros, cuerpo y un ejemplo de respuesta real capturado contra
+`hospital_local`: `docs/api.md` (verificado 1:1 contra `registry.ts` y
+`openapi.json`).
 
 ### API interna del agente — no es pública
 
@@ -210,17 +220,37 @@ Better Auth y se configura en `core/auth/auth.ts`.
 
 ---
 
+## Tests
+
+Cuatro tipos, cada uno con su base de datos — detalle completo (cómo
+lanzarlos, cómo preparar cada BD, tiempos, mapa ruta → spec E2E y qué queda
+fuera) en **`docs/testing.md`**. Resumen:
+
+| Comando | Qué corre | BD |
+|---|---|---|
+| `npm test` / `npm run test:coverage` | Unitarios + integración (`tests/unit/`, `tests/modules/`, `tests/security/`) | La que apunte `DATABASE_URL` (fixtures pequeños; `migrate deploy` + `db:seed:dev`, nunca `reset`) |
+| `npm run test:real` | Conteos y derivados contra los datos reales, leídos también de los `.txt` crudos | `hospital_local` (la de `.env`, con `npm run data:import` ya corrido) |
+| `npm run test:e2e` | Servidor real + HTTP real, un archivo por recurso/flujo | `hospital_e2e` (`E2E_DATABASE`), preparada sola por `tests/e2e/global-setup.ts` |
+
+Quedan fuera de toda suite automática: el envío real de correo (Resend, sin
+salida a internet garantizada) y la calidad de las respuestas de un agente
+Python real (se prueba con un stub/mock, nunca con un LLM de verdad —
+`docs/testing.md` §4).
+
+---
+
 ## Documentación
 
 | Documento | Contenido |
 |---|---|
-| [`docs/frontend.md`](docs/frontend.md) | guía para React: arranque de los 3 procesos, cliente de Better Auth, contrato y errores, usuarios de prueba, pantalla a pantalla |
+| [`docs/frontend.md`](docs/frontend.md) | guía para React: arranque de los 3 procesos, cliente de Better Auth, contrato y errores, los 7 roles y qué ve/hace cada uno, pantalla a pantalla (incluida la carga de CSV), generación de tipos, `/api/v1/docs` |
 | [`docs/architecture.md`](docs/architecture.md) | capas, pipeline de middlewares, los dos puertos, flujo del agente |
-| [`docs/rbac.md`](docs/rbac.md) | catálogo de permisos, matriz de roles, invariante de no-escalada |
+| [`docs/rbac.md`](docs/rbac.md) | catálogo de permisos (27, en 12 grupos), matriz de los 7 roles, invariante de no-escalada |
 | [`docs/security.md`](docs/security.md) | qué control vive dónde, qué queda fuera de alcance |
-| [`docs/api.md`](docs/api.md) | todos los endpoints (desde el registro OpenAPI), permisos y ejemplos de respuesta reales |
+| [`docs/api.md`](docs/api.md) | los 93 endpoints propios (desde `registry.ts`/`openapi.json`) + los de Better Auth que usa el frontend, con permisos y ejemplos de respuesta reales |
+| [`docs/testing.md`](docs/testing.md) | tipos de test, cómo lanzarlos, qué BD usa cada uno, tiempos, mapa ruta → spec E2E |
 | [`docs/agent-integration.md`](docs/agent-integration.md) | contrato para el equipo de Python: `/v1/ask`, `/health`, `/internal/agent/query`, DSL, catálogo de 5 datasets y límites |
-| [`docs/database.md`](docs/database.md) | modelo completo: identidad, RBAC, auditoría, alertas y los datos reales del HIS (`his_*`) |
+| [`docs/database.md`](docs/database.md) | modelo completo: identidad, RBAC, auditoría, alertas (+ reglas en BD), imports y los datos reales del HIS (`his_*`) |
 | [`SECURITY.md`](SECURITY.md) | cómo reportar una vulnerabilidad |
 
 ---

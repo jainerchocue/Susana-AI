@@ -66,4 +66,98 @@ describe('recalcularDerivados (his.derivados.ts)', () => {
     const trasFiltroPropio = await prisma.surgerySchedule.findUniqueOrThrow({ where: { id: cirugia.id } });
     expect(trasFiltroPropio.executed).not.toBe('desconocido');
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // TC6 (arreglo pendiente #1): "UPDATE ... FROM" con JOIN implicito NO toca
+  // la fila cuando la fuente desaparece del todo (0 filas en la subconsulta /
+  // sin fila que casar en el JOIN), asi que el derivado se queda con el valor
+  // VIEJO en vez de volver a null. Estos tres tests fallaban antes del fix
+  // (recalcularDerivados con LEFT JOIN/CASE) y pasan despues.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('cuando un ingreso se queda SIN ninguna actividad, lastActivityAt y stayHours vuelven a null', async () => {
+    const candidato = await prisma.admission.findFirst({
+      where: { lastActivityAt: { not: null } },
+      select: { id: true },
+    });
+    expect(candidato).not.toBeNull();
+    const { id } = candidato!;
+
+    await prisma.serviceRecord.deleteMany({ where: { admissionId: id } });
+    await prisma.medicationDispense.deleteMany({ where: { admissionId: id } });
+
+    await recalcularDerivados(prisma, { admissionIds: [id] });
+
+    const tras = await prisma.admission.findUniqueOrThrow({ where: { id } });
+    expect(tras.lastActivityAt).toBeNull();
+    expect(tras.stayHours).toBeNull();
+  });
+
+  it('al limpiar triageId (ingreso sin triage), triageLevel y waitMinutes vuelven a null', async () => {
+    const candidato = await prisma.admission.findFirst({
+      where: { triageId: { not: null }, waitMinutes: { not: null } },
+      select: { id: true },
+    });
+    expect(candidato).not.toBeNull();
+    const { id } = candidato!;
+
+    await prisma.admission.update({ where: { id }, data: { triageId: null } });
+    await recalcularDerivados(prisma, { admissionIds: [id] });
+
+    const tras = await prisma.admission.findUniqueOrThrow({ where: { id } });
+    expect(tras.triageLevel).toBeNull();
+    expect(tras.waitMinutes).toBeNull();
+  });
+
+  it('al limpiar firstCareAt (sin tocar el triage), waitMinutes vuelve a null', async () => {
+    const candidato = await prisma.admission.findFirst({
+      where: { firstCareAt: { not: null }, waitMinutes: { not: null } },
+      select: { id: true },
+    });
+    expect(candidato).not.toBeNull();
+    const { id } = candidato!;
+
+    await prisma.admission.update({ where: { id }, data: { firstCareAt: null } });
+    await recalcularDerivados(prisma, { admissionIds: [id] });
+
+    const tras = await prisma.admission.findUniqueOrThrow({ where: { id } });
+    expect(tras.waitMinutes).toBeNull();
+  });
+
+  it('al borrar el service-record que hacia verificable una cirugia, executed vuelve a "no"', async () => {
+    const admission = await prisma.admission.findFirstOrThrow({ select: { id: true } });
+    const admissionId = admission.id;
+
+    await prisma.procedure.create({ data: { code: 'ZE2EDERIV1', name: 'Procedimiento sintetico TC6' } });
+    const cirugia = await prisma.surgerySchedule.create({
+      data: { scheduleNumber: 'ZE2E-DERIV', patientId: 9_999_001, admissionId, procedureCode: 'ZE2EDERIV1', executed: 'desconocido' },
+    });
+    const servicio = await prisma.serviceRecord.create({
+      data: {
+        id: 9_999_101,
+        admissionId,
+        code: 'ZE2EDERIV1',
+        quantity: 1,
+        providedAt: new Date('2026-06-01T12:00:00.000Z'),
+        areaCode: 'Z1',
+        area: 'AREA SINTETICA TC6',
+        specialty: 'ESP SINTETICA TC6',
+      },
+    });
+
+    try {
+      await recalcularDerivados(prisma, { admissionIds: [admissionId] });
+      const trasCrear = await prisma.surgerySchedule.findUniqueOrThrow({ where: { id: cirugia.id } });
+      expect(trasCrear.executed).toBe('si');
+
+      await prisma.serviceRecord.delete({ where: { id: servicio.id } });
+      await recalcularDerivados(prisma, { admissionIds: [admissionId] });
+      const trasBorrar = await prisma.surgerySchedule.findUniqueOrThrow({ where: { id: cirugia.id } });
+      expect(trasBorrar.executed).toBe('no');
+    } finally {
+      await prisma.surgerySchedule.deleteMany({ where: { id: cirugia.id } });
+      await prisma.serviceRecord.deleteMany({ where: { id: 9_999_101 } });
+      await prisma.procedure.deleteMany({ where: { code: 'ZE2EDERIV1' } });
+    }
+  });
 });

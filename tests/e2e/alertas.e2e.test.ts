@@ -147,6 +147,14 @@ function percentilContinuo(valores: number[], p: number): number {
   return valorInferior + (valorSuperior - valorInferior) * fraccion;
 }
 
+// La API redondea a 2 decimales toda estadistica decimal (core/http/numero.ts,
+// arreglo TC6: AVG/percentile_cont de Postgres no son deterministas bajo
+// agregacion paralela sobre float8). `Alert.value` hereda ese redondeo de
+// occupancy/wait-time/demand/surgeries.service.ts (alerts.metrics.ts), asi
+// que los candidatos calculados aqui se redondean IGUAL antes de decidir
+// severidad y antes de comparar (si no, un candidato podria cruzar el umbral
+// en un lado y la alerta real en el otro, o `toBeCloseTo` fallaria por el
+// propio redondeo en vez de por un bug real).
 function redondear2(valor: number): number {
   return Math.round(valor * 100) / 100;
 }
@@ -187,7 +195,7 @@ async function candidatosOcupacion(referencia: Date): Promise<Candidato[]> {
   for (const unidad of new Set([...capacidad.keys(), ...censo.keys()])) {
     const camas = capacidad.get(unidad)?.size ?? 0;
     if (camas === 0) continue; // insufficient_data: nunca genera alerta.
-    const pct = ((censo.get(unidad) ?? 0) / camas) * 100;
+    const pct = redondear2(((censo.get(unidad) ?? 0) / camas) * 100);
     const severidad = severidadSobreMaximo(pct, env.ALERT_OCCUPANCY_PCT, env.ALERT_CRITICAL_OCCUPANCY_PCT);
     if (severidad) {
       candidatos.push({
@@ -219,7 +227,7 @@ async function candidatosEspera(desde: Date, hasta: Date): Promise<Candidato[]> 
 
   const candidatos: Candidato[] = [];
   for (const [nivel, valores] of porNivel) {
-    const p50 = percentilContinuo(valores, 0.5);
+    const p50 = redondear2(percentilContinuo(valores, 0.5));
     const severidad = severidadSobreMaximo(p50, env.ALERT_WAIT_MINUTES, env.ALERT_WAIT_MINUTES * 2);
     if (severidad) {
       candidatos.push({
@@ -257,7 +265,7 @@ async function candidatosDemanda(hasta: Date): Promise<Candidato[]> {
   for (const unidad of new Set([...last7.keys(), ...prev7.keys()])) {
     const p = prev7.get(unidad) ?? 0;
     if (p === 0) continue; // insufficient_data: division por cero no es "0% de cambio".
-    const pct = (((last7.get(unidad) ?? 0) - p) / p) * 100;
+    const pct = redondear2((((last7.get(unidad) ?? 0) - p) / p) * 100);
     const severidad = severidadSobreMaximo(pct, env.ALERT_DEMAND_SPIKE_PCT, null);
     if (severidad) {
       candidatos.push({ type: 'DEMAND_SPIKE', scope: 'service', scopeId: unidad, severity: severidad, value: pct, threshold: env.ALERT_DEMAND_SPIKE_PCT });

@@ -1,5 +1,6 @@
 import { prisma } from '../../core/db/prisma';
 import { AUDIT, auditar, type RequestMeta } from '../../core/audit/audit';
+import { redondearDecimales } from '../../core/http/numero';
 
 /**
  * Analitica de cirugias programadas (T9). B0: `SurgerySchedule` no tiene FK
@@ -7,14 +8,14 @@ import { AUDIT, auditar, type RequestMeta } from '../../core/audit/audit';
  * reales no las cumplen), asi que la unidad del ingreso vinculado se resuelve
  * con una segunda consulta y se cruza en memoria, nunca con un `include` de
  * Prisma (no hay relacion declarada en el schema para expresarlo).
+ *
+ * Los porcentajes (`pct`, `executedPct`, `notExecutedPct`, `pctSinEjecucion`)
+ * se redondean a 2 decimales (`redondearDecimales`, core/http/numero.ts):
+ * misma politica de precision que el resto de estadisticas decimales de la
+ * API, aunque aqui el calculo es entero/JS (sin AVG de Postgres de por medio).
  */
 
 const TOP_PROCEDIMIENTOS = 10;
-
-function redondear(valor: number, decimales = 2): number {
-  const factor = 10 ** decimales;
-  return Math.round(valor * factor) / factor;
-}
 
 interface ConteoEjecucion {
   executed: number;
@@ -101,14 +102,14 @@ export async function resumen(): Promise<SurgeriesSummary> {
     distinctProcedures: gruposProcedimiento.length,
     withAdmissionInExtract: {
       count: verificable,
-      pct: totalSchedules > 0 ? redondear((verificable / totalSchedules) * 100) : 'insufficient_data',
+      pct: totalSchedules > 0 ? redondearDecimales((verificable / totalSchedules) * 100) : 'insufficient_data',
     },
     verifiable: {
       total: verificable,
       executed: conteo.executed,
-      executedPct: verificable > 0 ? redondear((conteo.executed / verificable) * 100) : 'insufficient_data',
+      executedPct: verificable > 0 ? redondearDecimales((conteo.executed / verificable) * 100) : 'insufficient_data',
       notExecuted: conteo.notExecuted,
-      notExecutedPct: verificable > 0 ? redondear((conteo.notExecuted / verificable) * 100) : 'insufficient_data',
+      notExecutedPct: verificable > 0 ? redondearDecimales((conteo.notExecuted / verificable) * 100) : 'insufficient_data',
     },
     unknown: conteo.unknown,
     topProcedures,
@@ -121,7 +122,7 @@ export async function pctSinEjecucion(): Promise<number | 'insufficient_data'> {
   const conteo = await contarPorEjecucion();
   const verificable = conteo.executed + conteo.notExecuted;
   if (verificable === 0) return 'insufficient_data';
-  return redondear((conteo.notExecuted / verificable) * 100);
+  return redondearDecimales((conteo.notExecuted / verificable) * 100);
 }
 
 export interface SurgeryExportRow {

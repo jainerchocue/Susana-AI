@@ -1,0 +1,2 @@
+OidTriage,FechaTriage,MotivoConsulta,TensionArterial,FrecuenciaCardiaca,FrecuenciaRespiratoria,Temperatura,IdPaciente2,CodigoTriage,ClasificacionTriage
+"9000003","2026-06-03 08:00:00","DOLOR ABDOMINAL","130/85","80","18","36.8","9000099","23","CONSULTA EXTERNA - TRIAGE 3 (VERDE)"

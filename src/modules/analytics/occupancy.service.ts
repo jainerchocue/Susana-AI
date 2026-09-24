@@ -1,4 +1,5 @@
 import { prisma } from '../../core/db/prisma';
+import { redondearDecimales } from '../../core/http/numero';
 import { HIS_ZONA_HORARIA } from '../his/his.periodo';
 
 /**
@@ -12,6 +13,10 @@ import { HIS_ZONA_HORARIA } from '../his/his.periodo';
  * Las camas VIRTUALES cuentan en el censo pero NO en la capacidad fisica
  * (capacidad = camas fisicas distintas de la unidad): por eso la ocupacion
  * puede superar el 100% (B0, "urgencias colapsado a mas del 200%").
+ *
+ * `occupancyPct` se redondea a 2 decimales (`redondearDecimales`, solo en la
+ * SALIDA de la API): politica de precision compartida por todas las
+ * estadisticas decimales de la API (core/http/numero.ts).
  */
 
 export type MetodoOcupacion = 'censo_estimado_ultima_actividad';
@@ -64,7 +69,7 @@ export async function ocupacionPorUnidad(instante: Date): Promise<OcupacionUnida
     physicalBeds: f.physicalBeds,
     census: f.census,
     virtualCensus: f.virtualCensus,
-    occupancyPct: f.physicalBeds === 0 ? 'insufficient_data' : (f.census / f.physicalBeds) * 100,
+    occupancyPct: f.physicalBeds === 0 ? 'insufficient_data' : redondearDecimales((f.census / f.physicalBeds) * 100),
   }));
 }
 
@@ -162,6 +167,6 @@ export async function censoDiario(desde: Date, hasta: Date): Promise<CensoDiario
   return filas.map((f) => ({
     day: f.dia.toISOString().slice(0, 10),
     census: f.census,
-    occupancyPct: physicalBeds === 0 ? 'insufficient_data' : (f.census / physicalBeds) * 100,
+    occupancyPct: physicalBeds === 0 ? 'insufficient_data' : redondearDecimales((f.census / physicalBeds) * 100),
   }));
 }

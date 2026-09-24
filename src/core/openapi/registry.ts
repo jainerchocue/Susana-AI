@@ -795,6 +795,7 @@ export const registroOpenApi: RutaDocumentada[] = [
     description: 'Requiere analytics:export, analytics:read y services:read.',
     auth: true,
     query: analyticsQuerySchema,
+    produces: 'text/csv',
   },
   {
     method: 'get',
@@ -804,6 +805,7 @@ export const registroOpenApi: RutaDocumentada[] = [
     description: 'Requiere analytics:export, analytics:read y services:read.',
     auth: true,
     query: analyticsQuerySchema,
+    produces: 'text/csv',
   },
 
   // ─── medications (T9 + TC4: detalle, catalogo, stock y dispensaciones) ─────
@@ -1009,6 +1011,7 @@ export const registroOpenApi: RutaDocumentada[] = [
     description: 'Requiere analytics:export, analytics:read y surgeries:read.',
     auth: true,
     query: emptyQuerySchema,
+    produces: 'text/csv',
   },
 
   // ─── service-records (TC3) ─────────────────────────────────────────────────

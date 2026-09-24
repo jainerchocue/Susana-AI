@@ -106,15 +106,9 @@ export async function update(
 ): Promise<PublicAdmission> {
   const data: Prisma.AdmissionUpdateInput = { ...input };
   if (input.bedName !== undefined) data.virtualBed = esCamaVirtual(input.bedName);
-  // `recalcularDerivados` recalcula triageLevel/waitMinutes con un JOIN sobre
-  // `triageId`: si se limpia el vinculo (triageId -> null), ese JOIN deja de
-  // casar y el UPDATE compartido NO toca la fila (no es su trabajo "resetear",
-  // solo "recalcular con lo que hay"). Sin este null explicito, un ingreso sin
-  // triage se quedaria con el nivel/espera del triage que perdio, ya obsoletos.
-  if (input.triageId === null) {
-    data.triageLevel = null;
-    data.waitMinutes = null;
-  }
+  // TC6: `recalcularDerivados` (his.derivados.ts) ahora usa un LEFT JOIN
+  // contra `his_triages` que asigna null el mismo cuando `triageId` se limpia,
+  // asi que ya no hace falta resetear triageLevel/waitMinutes a mano aqui.
 
   const admission = await prisma.$transaction(async (tx) => {
     // `update` (no `updateMany`) lanza P2025 si no existe -> 404 automatico.
@@ -194,10 +188,10 @@ async function escribirFirstCare(
 ): Promise<PublicAdmission> {
   const admission = await prisma.$transaction(async (tx) => {
     await tx.admission.update({
-      // Mismo motivo que en `update()`: al limpiar `firstCareAt`, el UPDATE
-      // compartido deja de casar (exige `firstCareAt IS NOT NULL`) y no
-      // resetea `waitMinutes` por si solo.
-      data: firstCareAt === null ? { firstCareAt, waitMinutes: null } : { firstCareAt },
+      // TC6: `recalcularDerivados` ya resetea `waitMinutes` a null cuando
+      // `firstCareAt` es null (CASE explicito), asi que no hace falta
+      // duplicar ese reset aqui.
+      data: { firstCareAt },
       where: { id },
     });
     // `waitMinutes` depende de `firstCareAt` (triage -> primera atencion).
