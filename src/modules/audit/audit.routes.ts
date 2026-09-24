@@ -6,7 +6,7 @@ import { noStore } from '../../core/middleware/security';
 import { PERMISSIONS } from '../../core/rbac/permissions';
 import { idParamSchema } from '../../core/http/schemas';
 import { listAuditQuerySchema } from './audit.schemas';
-import * as controller from './audit.controller';
+import * as auditController from './audit.controller';
 
 const router = Router();
 
