@@ -43,12 +43,15 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# CORS abierto: el agente lo llama Node (u orígenes de demo/hackathon).
+# Con allow_origins=["*"] no se puede usar allow_credentials=True (el navegador lo rechaza).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.app_env == "development" else [],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Contrato oficial con Node (Susana-AI)

@@ -32,6 +32,11 @@ CLAUDE.md
 
 # Documentacion, auditorias y planes de trabajo locales.
 docs/
+# Excepciones: presentacion del hackathon y diagramas del README
+!docs/presentacion/
+!docs/presentacion/**
+!docs/diagrams/
+!docs/diagrams/**
 AUDITORIA.md
 *AUDITORIA*.md
 *auditoria*.md

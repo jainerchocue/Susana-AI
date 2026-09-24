@@ -1,170 +1,384 @@
-# Hospital Intelligence — Backend + Agent
+# Susana-AI — Hospital Intelligence
 
-API Gateway/BFF para el hackathon *Hospital Intelligence*: sirve al frontend en
-React y es el **único** intermediario autorizado con el agente IA en Python.
-Node tiene toda la autoridad — el agente solo *propone* consultas en un DSL
-JSON que Node valida, ejecuta y audita.
+Documentación principal del monorepo del hackathon **Hospital Intelligence**
+(Hospital Susana López de Valencia).
 
-## Carpetas
-
-| Carpeta | Rol |
-|---------|-----|
-| `src/` | Backend Node (`:3000` público, `:3001` interno) |
-| `agent/` | Servicio Python (`:8000`) — contrato `GET /health` + `POST /v1/ask` |
-| `frontend/` | React (cuando exista) |
-
-Detalle del agente: [`agent/README.md`](agent/README.md).
-
-Stack Node: Node ≥22, Express 5, TypeScript strict, Prisma 6 + PostgreSQL, Zod 3,
-Better Auth, Pino, Vitest + Supertest. Autenticación solo por credenciales
-(email + contraseña, TOTP opcional); autorización propia por permisos
-(`recurso:accion`) con guardas de no-escalada — ver
-[`docs/rbac.md`](docs/rbac.md) y [`docs/security.md`](docs/security.md).
-
-> Estado del repo: `users`, `roles`, `permissions`, `audit` (+ `GET
-> /audit/{id}`), `health`, `alerts` (motor de reglas conectado a las métricas
-> reales, job periódico, `POST /alerts/evaluate`, reglas editables en BD por
-> `PATCH /alerts/rules/:type`, alertas manuales), `assistant` (agente + API
-> interna, 5 datasets), `dashboard`, `analytics`, `medications` (catálogo,
-> stock y dispensaciones con CRUD completo), `surgeries` y **CRUD completo**
-> sobre los 6 recursos de datos HIS (`patients`, `admissions`, `triages`,
-> `service-records`, `procedures`, `surgery-schedules`) más carga masiva por
-> CSV vía `POST /imports/:table` están implementados — 93 endpoints propios,
-> ver `docs/api.md` para el índice completo con ejemplos reales. Detalle de
-> arquitectura en `docs/architecture.md` y del modelo de datos en
-> `docs/database.md`.
->
-> **Bloqueador conocido:** `src/modules/audit/audit.routes.ts` referencia una
-> variable `controller` inexistente (el import se llama `auditController`);
-> como las rutas se cargan de forma síncrona (`core/router/autoload.ts`, sin
-> `try/catch` por módulo), esto impide que `createApp()` arranque — y con
-> ella, `npm run dev`, `npm test` y `npm run test:e2e`. Detalle y arreglo de
-> una línea en `docs/testing.md`.
+Este archivo es la **guía de entrada**: qué es el sistema, cómo encajan las
+piezas, cómo levantarlo, qué hace el agente IA/ML, cómo autenticarse y dónde
+está cada cosa. Los detalles finos del agente viven en `agent/`; el frontend
+tiene su propio README en la rama/carpeta `frontend/`.
 
 ---
 
-## Arranque local en 5 comandos
+## 1. Qué es
+
+Plataforma de **inteligencia operativa hospitalaria**:
+
+- Panel de ocupación, esperas, demanda, farmacia, cirugías y analítica
+- Motor de **alertas** con reglas sobre métricas reales
+- **Asistente IA** que responde en lenguaje natural con datos del HIS
+- Predicción (Random Forest) y recomendaciones operativas
+- Auth + RBAC + auditoría: el hospital controla quién ve qué
+
+Principio de diseño (innegociable):
+
+> **Node tiene toda la autoridad.** El agente Python solo *propone* consultas
+> en un DSL JSON. Node valida, autoriza, ejecuta contra PostgreSQL y audita.
+> El agente **nunca** ejecuta SQL ni toca la base directamente.
+
+---
+
+## 2. Arquitectura principal
+
+Diseño de referencia (secuencia + componentes) en FigJam:
+
+**[Agente Hospital Intelligence — secuencia y arquitectura](https://www.figma.com/board/5XE6rZuQFlOQedlwHzcYEK/Agente-Hospital-Intelligence---secuencia)**
+
+![Arquitectura y secuencia — Hospital Intelligence](docs/diagrams/arquitectura-figjam.png)
+
+Tres capas claras:
+
+| Capa | Componentes | Responsabilidad |
+|------|-------------|-----------------|
+| **Cliente** | Frontend React (`:5173` / Vercel) | UI; nunca habla con DB ni con el agente |
+| **Servicios** | Node BFF (`:3000` + `:3001`) · Agente Python (`:8000`) | Auth, RBAC, tickets; el agente propone DSL y razona (ML) |
+| **Datos** | PostgreSQL HIS · Redis | Solo Node escribe SQL validado y gestiona tickets |
+
+### Vista de componentes (alineada al FigJam)
+
+```mermaid
+flowchart LR
+  subgraph cliente ["Cliente"]
+    FE["Frontend React"]
+  end
+
+  subgraph servicios ["Servicios"]
+    Node["Node BFF<br/>:3000 público · :3001 interno"]
+    Agent["Agente Python<br/>:8000"]
+  end
+
+  subgraph datos ["Datos"]
+    PG[("PostgreSQL HIS")]
+    RD[("Redis tickets")]
+  end
+
+  FE -->|"POST /api/v1/assistant/query"| Node
+  Node -->|"POST /v1/ask"| Agent
+  Agent -->|"ticket + DSL"| Node
+  Node -->|"SQL validado"| PG
+  Node -->|"tickets"| RD
+```
+
+| Pieza | Carpeta | Puerto | Rol |
+|-------|---------|--------|-----|
+| Node BFF | `src/` | `:3000` / `:3001` | Auth, RBAC, DSL→SQL, alertas, CRUD HIS |
+| Agente IA/ML | `agent/` | `:8000` | Planner + Predictor (RF) + Recommender |
+| Frontend | `frontend/` | `:5173` | Dashboard, alertas, chat |
+| Datos | `prisma/`, `data/raw/` | — | Esquema e import HIS |
+
+**Stack:** Node ≥22 · Express 5 · Prisma 6 · PostgreSQL · Redis · Better Auth · FastAPI · scikit-learn · React 19 · Vite · Tailwind v4.
+
+---
+
+## 3. Secuencia de una pregunta
+
+Flujo real del asistente (mismo diagrama del FigJam). El usuario pregunta o
+**profundiza una alerta**; la respuesta cierra con *dato → anticipación → decisión*.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant Frontend
+    participant NodePublic
+    participant Agent
+    participant NodeInternal
+    participant Postgres
+
+    User->>Frontend: Pregunta o profundizar alerta
+    Frontend->>NodePublic: POST /api/v1/assistant/query
+    NodePublic->>Agent: POST /v1/ask (ticket + catálogo)
+    Agent->>NodeInternal: POST /internal/agent/query (DSL)
+    NodeInternal->>Postgres: Validar DSL y ejecutar
+    Postgres-->>NodeInternal: rows
+    NodeInternal-->>Agent: rows · rowCount
+    Agent->>NodeInternal: consulta_serie_temporal
+    NodeInternal->>Postgres: Serie diaria admissions
+    Postgres-->>NodeInternal: serie
+    NodeInternal-->>Agent: serie
+    Note over Agent: Predictor RF / tendencia · Recommender
+    Agent-->>NodePublic: status · answer
+    NodePublic-->>Frontend: answer · queries
+    Frontend-->>User: Datos · Anticipación · Decisión
+```
+
+En el agente, tras recibir filas: **Planner** → filas HIS → **Predictor**
+(Random Forest si ≥12 puntos; si no, tendencia) → **Recommender** → respuesta.
+
+| Paso | Endpoint | Auth |
+|------|----------|------|
+| Usuario → Node | `POST /api/v1/assistant/query` | Sesión + `Origin` |
+| Node → Agente | `POST /v1/ask` | `X-Internal-Key` = `AGENT_API_KEY` |
+| Agente → Node | `POST /internal/agent/query` | `x-internal-key` = `INTERNAL_API_KEY` |
+
+### Qué NO hace el agente
+
+- No ejecuta SQL ni abre Postgres
+- No es autoridad de datos (Node valida el DSL)
+- RF se entrena **por consulta** en memoria (sin modelo en disco)
+- Camino `/v1/ask` actual: planner determinístico (sin OpenRouter)
+
+Detalle y vista interna: [`agent/DIAGRAMA_FLUJO.md`](agent/DIAGRAMA_FLUJO.md) ·
+[`agent/DIAGRAMA_AGENTE_AI_ML.md`](agent/DIAGRAMA_AGENTE_AI_ML.md).
+
+---
+
+## 4. Módulos del backend (`src/modules/`)
+
+| Módulo | Qué cubre |
+|--------|-----------|
+| `users` / `roles` / `permissions` / `audit` | Identidad, RBAC, auditoría |
+| `health` | Liveness / readiness / startup |
+| `alerts` | Motor de reglas, job, ack/resolve, reglas en BD |
+| `assistant` | Puente al agente + API interna DSL |
+| `dashboard` | Resumen, ocupación, esperas, demanda |
+| `analytics` | Servicios, triage, exportaciones |
+| `medications` | Catálogo, stock, dispensaciones |
+| `surgeries` | Analítica de cirugías |
+| `patients`, `admissions`, `triages`, `service-records`, `procedures`, `surgery-schedules` | CRUD HIS |
+| `imports` | Carga masiva CSV (`POST /imports/:table`) |
+| `his` | Importador y derivados desde extractos |
+
+~**93 endpoints** propios documentados en `openapi.json` /
+`GET /api/v1/openapi.json`. Auth Better Auth vive en `core/auth/` (no hay
+`modules/auth/`).
+
+---
+
+## 5. Datasets del asistente
+
+El agente solo puede pedir datos de estos datasets (filtrados por permiso del
+usuario):
+
+| Dataset | Tabla | Permiso | Uso típico |
+|---------|-------|---------|------------|
+| `alerts` | `alerts` | `alerts:read` | Alertas abiertas / severidad (con filtro de ámbito) |
+| `admissions` | `his_admissions` | `services:read` | Ingresos, ocupación, esperas, predicción de demanda |
+| `services` | `his_service_records` | `services:read` | Servicios/procedimientos prestados |
+| `medications` | `his_medication_dispenses` | `medications:read` | Dispensaciones (código, no nombre) |
+| `surgeries` | `his_surgery_schedules` | `surgeries:read` | Conteos de programación (sin serie temporal rica) |
+
+Definición: `src/modules/assistant/assistant.catalog.ts`.
+
+---
+
+## 6. Permisos y roles (RBAC)
+
+Formato: `recurso:accion`. Fuente de verdad: `src/core/rbac/permissions.ts`.
+
+Grupos principales: `users`, `roles`, `permissions`, `audit`, `system`,
+`dashboard`, `analytics`, `assistant`, `medications`, `alerts`, `services`,
+`surgeries`, `patients`, `data` (`import` / `manage`).
+
+Roles de sistema (semilla): `SUPER_ADMIN`, `ADMIN`, `DIRECTOR`,
+`JEFE_SERVICIO`, `FARMACIA`, `ANALISTA`, `CONSULTA`.
+
+Reglas importantes:
+
+- Sin escalada de privilegios (guardas en `core/rbac/guards.ts`)
+- Alertas filtradas por **ámbito** (ej. FARMACIA solo ve `medication`)
+- Lecturas de pacientes se auditan (`patients:read` es sensible)
+- Comodín `*` solo para superadmin efectivo
+
+---
+
+## 7. Arranque local (los 3 procesos)
+
+### Requisitos
+
+- Node ≥22, Docker (Postgres + Redis) o instancias locales
+- Python 3.11+ (agente real)
+- Claves alineadas entre raíz `.env` y `agent/.env`
+
+### 7.1 Infra + API Node
 
 ```bash
-cp .env.example .env && echo "BETTER_AUTH_SECRET=$(openssl rand -base64 48)" >> .env
-docker compose up -d postgres redis   # o un Postgres/Redis locales
+cp .env.example .env
+# Generar BETTER_AUTH_SECRET con buena entropía y pegarlo en .env
+
+docker compose up -d postgres redis
 npm install
-npm run db:migrate && npm run db:seed:dev   # migra, siembra permisos/roles/superadmin/usuarios de prueba
-npm run dev                                  # API pública :3000 + API interna del agente :3001
+npm run db:migrate && npm run db:seed:dev
+npm run dev
+# → API pública :3000 + API interna del agente :3001
 ```
 
-El seed exige un `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` propios en
-producción: el valor de ejemplo está publicado en este repositorio y el
-arranque lo rechaza. Sin `AGENT_URL` el asistente responde `503` (no hace
-falta Python corriendo para trabajar en el resto de la API); para el agente
-**real** del equipo AI usa la carpeta [`agent/`](agent/) (`uvicorn` en `:8000`).
-Para un stub mínimo sin Python, `npm run agent:mock` (puerto 8000) implementa el
-mismo contrato con datos de ejemplo — ver `docs/agent-integration.md`.
+En el `.env` de la **raíz** (para el agente real):
 
-Los datos clínicos reales del HIS (dashboard, ocupación, medicamentos,
-cirugías, asistente) no vienen en el seed: se importan aparte, una vez que
-los archivos del extracto están en `data/raw/*.txt` (carpeta ignorada por
-git):
+```env
+AGENT_URL=http://127.0.0.1:8000
+AGENT_API_KEY=<igual que agent/.env AGENT_API_KEY>
+INTERNAL_API_KEY=<igual que agent/.env NODE_INTERNAL_API_KEY>
+```
+
+Sin `AGENT_URL`, `/assistant/query` responde `503`. Stub sin Python:
 
 ```bash
-npm run data:import      # idempotente: relanzarlo no duplica nada
-npm run test:real        # opcional: verifica los conteos contra los archivos crudos
+npm run agent:mock   # mismo contrato en :8000
 ```
 
-Guía completa de arranque de los 3 procesos (API, agente simulado, React),
-usuarios de prueba y qué pantalla usa qué endpoint: **`docs/frontend.md`**.
+**Datos HIS** (dashboard, ocupación, asistente con datos reales): no vienen en
+el seed. Coloca extractos en `data/raw/*.txt` (carpeta ignorada por git) y:
+
+```bash
+npm run data:import   # idempotente
+npm run test:real     # opcional: verifica conteos vs archivos crudos
+```
+
+### 7.2 Agente Python
+
+```bash
+cd agent
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+# Alinear AGENT_API_KEY y NODE_INTERNAL_API_KEY con el .env de Node
+uvicorn app.main:app --reload --port 8000
+```
+
+Guía de código del agente: [`agent/GUIA_CODIGO.md`](agent/GUIA_CODIGO.md) ·
+tareas AI: [`agent/TAREAS.md`](agent/TAREAS.md) · setup corto:
+[`agent/README.md`](agent/README.md).
+
+### 7.3 Frontend
+
+```bash
+# Rama frontend (o carpeta local sincronizada)
+cd frontend
+cp .env.example .env   # VITE_API_URL=http://localhost:3000/api/v1
+npm install
+npm run dev            # :5173
+```
+
+Detalle UI: `frontend/README.md`. En producción el front suele ir a **Vercel**;
+API + agente + Postgres/Redis en el host del equipo backend.
+
+### 7.4 Producción API (PM2)
+
+```bash
+npm run build
+pm2 start ecosystem.config.js --env production
+```
+
+Ver [`ecosystem.config.js`](ecosystem.config.js).
 
 ---
 
-## Variables de entorno clave
+## 8. Variables de entorno clave
 
-Lista completa y comentada en `.env.example` (falla al arrancar si algo
-falta o es inseguro). Las específicas de este dominio:
+Lista completa y comentada: `.env.example` (falla al arrancar si falta algo
+crítico o es inseguro).
 
 | Variable | Qué hace |
-|---|---|
-| `AUTH_PUBLIC_SIGNUP` | `false` por defecto: un hospital no tiene autoregistro. Las altas las hace un admin (`POST /users`) |
-| `AGENT_URL` | URL del servicio Python. Sin ella, `/assistant/query` responde `503` |
-| `AGENT_API_KEY` / `INTERNAL_API_KEY` | claves del canal Node↔Python, una por sentido. Sin `INTERNAL_API_KEY` el puerto interno no arranca |
-| `AGENT_TIMEOUT_MS`, `AGENT_QUERY_TIMEOUT_MS` | timeouts de red y de la consulta SQL del agente |
-| `AGENT_MAX_QUERIES_BASIC/ADVANCED`, `AGENT_MAX_ROWS` | cupos por ticket, según tenga el usuario `assistant:advanced` |
-| `INTERNAL_HOST`, `INTERNAL_PORT`, `INTERNAL_ALLOWED_IPS` | puerto interno (127.0.0.1 por defecto) y su allowlist de IP/CIDR |
-| `ASSISTANT_RATE_LIMIT_MAX` / `INTERNAL_RATE_LIMIT_MAX` | límites del asistente (por usuario) y de la API interna (por IP) |
-| `ALERT_LOW_STOCK_DAYS`, `ALERT_OCCUPANCY_PCT`, `ALERT_WAIT_MINUTES`, ... | umbrales del motor de reglas de alertas |
+|----------|----------|
+| `BETTER_AUTH_SECRET` | Secreto de sesiones (obligatorio, alta entropía) |
+| `DATABASE_URL` / `REDIS_URL` | Postgres y Redis |
+| `AUTH_PUBLIC_SIGNUP` | `false` por defecto: sin autoregistro hospitalario |
+| `AGENT_URL` | URL del Python; sin ella, asistente en `503` |
+| `AGENT_API_KEY` | Node → agente (`X-Internal-Key`) |
+| `INTERNAL_API_KEY` | Agente → Node interno; **distinta** de la anterior |
+| `AGENT_TIMEOUT_MS`, `AGENT_QUERY_TIMEOUT_MS` | Timeouts red / SQL |
+| `AGENT_MAX_QUERIES_BASIC/ADVANCED`, `AGENT_MAX_ROWS` | Cupos por ticket |
+| `INTERNAL_HOST`, `INTERNAL_PORT`, `INTERNAL_ALLOWED_IPS` | Puerto interno |
+| `ASSISTANT_RATE_LIMIT_MAX` / `INTERNAL_RATE_LIMIT_MAX` | Rate limits |
+| `ALERT_*` | Umbrales del motor de alertas |
+| `CORS_ORIGINS` | Orígenes permitidos (local + URL Vercel) |
+| `COOKIE_SECURE`, `TRUST_PROXY` | Producción detrás de proxy HTTPS |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Superadmin del seed |
+| `SEED_TEST_USERS` | Crea director/farmacia de prueba (solo no-prod) |
+
+Agente (`agent/.env`): `AGENT_API_KEY`, `NODE_INTERNAL_URL`,
+`NODE_INTERNAL_API_KEY`, opcionales de LLM si se usan rutas legacy.
 
 ---
 
-## Scripts
+## 9. Scripts npm
 
 | Comando | Qué hace |
-|---|---|
-| `npm run dev` | Servidor con recarga en caliente |
-| `npm run lint` / `npm run typecheck` | 0 errores es el criterio |
-| `npm test` | Suite completa (necesita PostgreSQL) |
-| `npm run build` | Compila a `dist/` |
-| `npm run audit:prod` | Falla si hay CVE alta en dependencias **de producción** |
-| `npm run db:migrate` | Crea y aplica migración |
-| `npm run db:seed:dev` | Siembra permisos, roles y superadmin |
-| `npm run db:purge` | Borra sesiones y verificaciones caducadas |
-| `npm run db:studio` | Explorador de la base de datos |
+|---------|----------|
+| `npm run dev` | API con recarga (:3000 + :3001) |
+| `npm run build` / `npm start` | Compila a `dist/` y arranca |
+| `npm run lint` / `typecheck` | Calidad (0 errores es el criterio) |
+| `npm test` | Unit + módulos + seguridad |
+| `npm run test:coverage` | Cobertura |
+| `npm run test:e2e` | HTTP real por recurso (`hospital_e2e`) |
+| `npm run test:real` | Conteos HIS vs `.txt` en `hospital_local` |
+| `npm run db:migrate` / `db:deploy` | Migraciones Prisma |
+| `npm run db:seed:dev` | Permisos, roles, superadmin, users de prueba |
+| `npm run db:studio` / `db:purge` | Explorador / limpieza de sesiones |
+| `npm run data:import` | Importa HIS desde `data/raw/` |
+| `npm run agent:mock` | Stub del agente en `:8000` |
+| `npm run audit:prod` | Falla si hay CVE alta en deps de producción |
 
 ---
 
-## Mapa de endpoints
+## 10. Mapa de endpoints
 
-### Autenticación — los sirve Better Auth
+### Autenticación (Better Auth)
 
-No hay `modules/auth/`; toda `{API_PREFIX}/auth/**` la sirve Better Auth desde
-`core/auth/auth.ts`. Contrato completo y vivo en **`GET /api/v1/auth/reference`**
-(no se duplica a mano en `openapi.json`: copiarlo garantizaría que mienta el
-día que la librería cambie). Equivalencia con nombres de JWT clásicos:
+Toda `{API_PREFIX}/auth/**` la sirve Better Auth desde `core/auth/auth.ts`.
+Contrato vivo: **`GET /api/v1/auth/reference`**.
 
-| Método | Ruta | Equivale a |
-|---|---|---|
-| POST | `/api/v1/auth/sign-up/email` | registro (bloqueado salvo `AUTH_PUBLIC_SIGNUP=true`) |
-| POST | `/api/v1/auth/sign-in/email` | login |
-| POST | `/api/v1/auth/sign-out` | logout |
-| GET | `/api/v1/auth/get-session` | sesión actual |
-| — | (no existe) | *refresh*: la sesión se renueva sola (`updateAge`), no hay token rotativo |
-| GET | `/api/v1/users/me` | *me* |
-| POST | `/api/v1/auth/two-factor/verify-totp` | segundo paso del login (MFA) |
+| Método | Ruta | Uso |
+|--------|------|-----|
+| POST | `/api/v1/auth/sign-up/email` | Registro (bloqueado si `AUTH_PUBLIC_SIGNUP=false`) |
+| POST | `/api/v1/auth/sign-in/email` | Login |
+| POST | `/api/v1/auth/sign-out` | Logout |
+| GET | `/api/v1/auth/get-session` | Sesión actual |
+| GET | `/api/v1/users/me` | Perfil |
+| POST | `/api/v1/auth/two-factor/verify-totp` | Segundo factor MFA |
 
-### Negocio — nuestros, en `openapi.json` (93 endpoints)
+No hay *refresh* rotativo: la sesión se renueva sola (`updateAge`).
 
-| Recurso | Rutas | Permiso base |
-|---|---|---|
-| `users` / `roles` / `permissions` / `audit` | CRUD de usuarios y roles, catálogo de permisos (solo lectura), auditoría (lectura + `GET /audit/:id`) | `users:*` / `roles:*` / `permissions:read` / `audit:read` |
-| `patients` | CRUD, sin `birthDate` en la salida, cada lectura auditada | `patients:read` (lectura) / `data:manage` (escritura) |
-| `admissions` | CRUD + `PUT`/`DELETE .../first-care` | `services:read` / `data:manage` |
-| `triages`, `service-records`, `procedures`, `surgery-schedules` | CRUD completo (claves naturales del HIS, salvo `surgery-schedules` con id autoincremental) | `services:read`/`surgeries:read` (lectura) / `data:manage` (escritura) |
-| `medications` | Catálogo, stock (listado + PUT/DELETE), dispensaciones (CRUD), detalle con riesgo | `medications:read`/`manage`, dispensaciones con `data:manage` |
-| `alerts` | Listado/ack/resolver, alerta manual, reglas del motor en BD (`GET/PATCH /alerts/rules/:type`) | `alerts:read`/`manage`, reglas con `system:manage` |
-| `imports` | Subida de CSV (`POST /imports/:table`, 202 + job en 2º plano), sondeo, plantillas, borrado de metadatos | `data:import` |
-| `assistant` | Pregunta al agente IA (DSL validado y ejecutado por Node) | `assistant:use`/`advanced` |
-| `dashboard`, `analytics`, `surgeries` (agregado) | Paneles y analítica de solo lectura, con exportación CSV | `dashboard:read`, `analytics:read`/`export` + ámbito |
-| `health` | Liveness/readiness/startup | público |
+### Negocio (~93 endpoints en `openapi.json`)
 
-El asistente y las alertas filtran, además del permiso, por **ámbito**: un
-`FARMACIA` con `alerts:read` solo ve alertas de tipo `medication` (ver
-`docs/rbac.md`). **Todos** los 93 endpoints, con método, ruta, permiso,
-parámetros, cuerpo y un ejemplo de respuesta real capturado contra
-`hospital_local`: `docs/api.md` (verificado 1:1 contra `registry.ts` y
-`openapi.json`).
+| Área | Rutas / capacidad | Permiso base |
+|------|-------------------|--------------|
+| Users / roles / permissions / audit | CRUD + `GET /audit/:id` | `users:*` / `roles:*` / `permissions:read` / `audit:read` |
+| Patients | CRUD; sin `birthDate` en salida; lectura auditada | `patients:read` / `data:manage` |
+| Admissions | CRUD + first-care | `services:read` / `data:manage` |
+| Triages, service-records, procedures, surgery-schedules | CRUD HIS | ámbito lectura + `data:manage` |
+| Medications | Catálogo, stock, dispensaciones | `medications:read`/`manage` |
+| Alerts | Listado, ack, resolve, manual, reglas `GET/PATCH /alerts/rules/:type` | `alerts:*` / `system:manage` en reglas |
+| Imports | `POST /imports/:table` (202 + job), plantillas, sondeo | `data:import` |
+| Assistant | `POST /assistant/query` | `assistant:use` (+ `advanced`) |
+| Dashboard / analytics / surgeries | Paneles y export CSV | `dashboard:read`, `analytics:*` |
+| Health | `/health`, `/ready`, `/startup` | público |
 
-### API interna del agente — no es pública
+### API interna del agente (NO pública)
 
-`POST /internal/agent/query` vive en un **segundo puerto** (127.0.0.1,
-`INTERNAL_PORT`), protegido por IP allowlist + clave + rate limit propio.
-Nunca se monta en el puerto público ni se documenta en `openapi.json`.
-Contrato completo para el equipo de Python: `docs/agent-integration.md`.
-Diseño de seguridad: `docs/security.md`.
+| Método | Ruta | Puerto | Auth |
+|--------|------|--------|------|
+| POST | `/internal/agent/query` | `:3001` | IP allowlist + `x-internal-key` + rate limit |
+
+Nunca se monta en `:3000` ni en `openapi.json`.
+
+### Contrato del agente Python
+
+| Método | Ruta | Auth |
+|--------|------|------|
+| GET | `/health` | — |
+| POST | `/v1/ask` | `X-Internal-Key` = `AGENT_API_KEY` |
 
 ---
 
-## Cómo autenticarse
+## 11. Cómo autenticarse
 
-**Web (cookie).** El login deja una cookie httpOnly. Toda petición que cambie
-estado necesita `Origin` (defensa CSRF, rechaza si falta):
+### Cookie (web / frontend)
+
+Las mutaciones exigen cabecera `Origin` (CSRF):
 
 ```bash
 curl -c cookies.txt -X POST localhost:3000/api/v1/auth/sign-in/email \
@@ -172,13 +386,12 @@ curl -c cookies.txt -X POST localhost:3000/api/v1/auth/sign-in/email \
   -d '{"email":"admin@hospital-intelligence.dev","password":"..."}'
 
 curl -b cookies.txt -H 'Origin: http://localhost:5173' \
-  -X PATCH localhost:3000/api/v1/users/me \
-  -H 'Content-Type: application/json' -d '{"name":"Nuevo"}'
+  localhost:3000/api/v1/users/me
 ```
 
-**Móvil o servicio a servicio (Bearer).** El login devuelve el token en la
-cabecera `set-auth-token`; sin cookies no hay vector CSRF y no hace falta
-`Origin`:
+### Bearer (móvil o servicio a servicio)
+
+El login devuelve el token en `set-auth-token`:
 
 ```bash
 TOKEN=$(curl -si -X POST localhost:3000/api/v1/auth/sign-in/email \
@@ -189,75 +402,134 @@ TOKEN=$(curl -si -X POST localhost:3000/api/v1/auth/sign-in/email \
 curl -H "Authorization: Bearer $TOKEN" localhost:3000/api/v1/users/me
 ```
 
----
+### Pregunta al asistente (ejemplo)
 
-## Usuarios de prueba
-
-`npm run db:seed:dev` con `SEED_TEST_USERS=true` (por defecto en desarrollo;
-`env.ts` lo prohíbe en producción) crea, ya verificados:
-
-| Correo (por defecto) | Rol | Contraseña |
-|---|---|---|
-| el de `SEED_ADMIN_EMAIL` | `SUPER_ADMIN` | la de `SEED_ADMIN_PASSWORD` |
-| `director@hospital.test` | `DIRECTOR` | la de `SEED_TEST_PASSWORD` |
-| `farmacia@hospital.test` | `FARMACIA` | la de `SEED_TEST_PASSWORD` |
-
-Qué ve cada uno, pantalla a pantalla: `docs/frontend.md`. Nota importante
-para la demo: **Resend en modo sandbox solo entrega correos a la dirección de
-la propia cuenta de Resend** (sin dominio verificado); mientras eso no
-cambie, como mucho un usuario de prueba podrá recibir correos reales.
+```bash
+curl -b cookies.txt -H 'Origin: http://localhost:5173' \
+  -H 'Content-Type: application/json' \
+  -X POST localhost:3000/api/v1/assistant/query \
+  -d '{"question":"¿Cómo se ve la ocupación de urgencias la próxima semana?"}'
+```
 
 ---
 
-## Añadir un módulo
+## 12. Usuarios de prueba
 
-Crea `src/modules/<dominio>/` con `routes`, `controller`, `service`,
-`schemas` (y `mapper` si expone entidades con campos sensibles). El archivo
-`*.routes.ts` se monta solo; el prefijo sale del nombre de la carpeta.
-Declara los permisos nuevos en `core/rbac/permissions.ts` y siembra con
-`npm run db:seed:dev`. **No** crees `modules/auth/`: esa superficie es de
-Better Auth y se configura en `core/auth/auth.ts`.
+Con `SEED_TEST_USERS=true` (desarrollo; `env.ts` lo prohíbe en producción):
 
----
+| Correo | Rol | Contraseña |
+|--------|-----|------------|
+| valor de `SEED_ADMIN_EMAIL` | `SUPER_ADMIN` | `SEED_ADMIN_PASSWORD` |
+| `director@hospital.test` (o `SEED_DIRECTOR_EMAIL`) | `DIRECTOR` | `SEED_TEST_PASSWORD` |
+| `farmacia@hospital.test` (o `SEED_FARMACIA_EMAIL`) | `FARMACIA` | `SEED_TEST_PASSWORD` |
 
-## Tests
-
-Cuatro tipos, cada uno con su base de datos — detalle completo (cómo
-lanzarlos, cómo preparar cada BD, tiempos, mapa ruta → spec E2E y qué queda
-fuera) en **`docs/testing.md`**. Resumen:
-
-| Comando | Qué corre | BD |
-|---|---|---|
-| `npm test` / `npm run test:coverage` | Unitarios + integración (`tests/unit/`, `tests/modules/`, `tests/security/`) | La que apunte `DATABASE_URL` (fixtures pequeños; `migrate deploy` + `db:seed:dev`, nunca `reset`) |
-| `npm run test:real` | Conteos y derivados contra los datos reales, leídos también de los `.txt` crudos | `hospital_local` (la de `.env`, con `npm run data:import` ya corrido) |
-| `npm run test:e2e` | Servidor real + HTTP real, un archivo por recurso/flujo | `hospital_e2e` (`E2E_DATABASE`), preparada sola por `tests/e2e/global-setup.ts` |
-
-Quedan fuera de toda suite automática: el envío real de correo (Resend, sin
-salida a internet garantizada) y la calidad de las respuestas de un agente
-Python real (se prueba con un stub/mock, nunca con un LLM de verdad —
-`docs/testing.md` §4).
+Nota: Resend en sandbox solo entrega a la cuenta propia; no esperes correo
+real a todos los usuarios de prueba sin dominio verificado.
 
 ---
 
-## Documentación
+## 13. Añadir un módulo Node
+
+1. Crea `src/modules/<dominio>/` con `routes`, `controller`, `service`,
+   `schemas` (y `mapper` si hay campos sensibles).
+2. El `*.routes.ts` se monta solo (autoload); el prefijo = nombre de carpeta.
+3. Declara permisos nuevos en `core/rbac/permissions.ts`.
+4. `npm run db:seed:dev`.
+5. **No** crees `modules/auth/`.
+
+---
+
+## 14. Tests
+
+| Comando | Qué corre | Base de datos |
+|---------|-----------|---------------|
+| `npm test` | `tests/unit/`, `tests/modules/`, `tests/security/` | `DATABASE_URL` |
+| `npm run test:real` | Conteos y derivados vs `.txt` crudos | `hospital_local` + `data:import` |
+| `npm run test:e2e` | Servidor real + HTTP real | `E2E_DATABASE` (`hospital_e2e`) |
+
+Fuera de suite automática: envío real de correo (Resend) y calidad de un
+agente/LLM real (E2E usa stub).
+
+---
+
+## 15. Seguridad (resumen)
+
+Controles clave (detalle en [`SECURITY.md`](SECURITY.md)):
+
+| Control | Dónde |
+|---------|-------|
+| No-escalada de privilegios | `core/rbac/guards.ts` |
+| Hashing scrypt | `core/security/password.ts` |
+| Sesiones + MFA TOTP | Better Auth |
+| CSRF por `Origin` | middleware de seguridad |
+| Rechazo de contraseñas filtradas (HIBP) | plugin HaveIBeenPwned |
+| Auditoría append-only | trigger PostgreSQL |
+| Agente sin SQL directo | DSL validado en Node `:3001` |
+| Puerto interno aislado | allowlist IP + clave distinta |
+
+### Antes de desplegar
+
+- `BETTER_AUTH_SECRET` con entropía real
+- `REDIS_URL` obligatoria
+- `COOKIE_SECURE=true`, `CORS_ORIGINS` solo https
+- `TRUST_PROXY` = saltos reales del reverse proxy
+- `AGENT_API_KEY` ≠ `INTERNAL_API_KEY`, rotadas
+- Frontend (Vercel) + API/agente/DB en infra del equipo
+
+Reportar vulnerabilidades: ver [`SECURITY.md`](SECURITY.md) (no abrir issue
+público).
+
+---
+
+## 16. Mapa de documentación
 
 | Documento | Contenido |
-|---|---|
-| [`docs/frontend.md`](docs/frontend.md) | guía para React: arranque de los 3 procesos, cliente de Better Auth, contrato y errores, los 7 roles y qué ve/hace cada uno, pantalla a pantalla (incluida la carga de CSV), generación de tipos, `/api/v1/docs` |
-| [`docs/architecture.md`](docs/architecture.md) | capas, pipeline de middlewares, los dos puertos, flujo del agente |
-| [`docs/rbac.md`](docs/rbac.md) | catálogo de permisos (27, en 12 grupos), matriz de los 7 roles, invariante de no-escalada |
-| [`docs/security.md`](docs/security.md) | qué control vive dónde, qué queda fuera de alcance |
-| [`docs/api.md`](docs/api.md) | los 93 endpoints propios (desde `registry.ts`/`openapi.json`) + los de Better Auth que usa el frontend, con permisos y ejemplos de respuesta reales |
-| [`docs/testing.md`](docs/testing.md) | tipos de test, cómo lanzarlos, qué BD usa cada uno, tiempos, mapa ruta → spec E2E |
-| [`docs/agent-integration.md`](docs/agent-integration.md) | contrato para el equipo de Python: `/v1/ask`, `/health`, `/internal/agent/query`, DSL, catálogo de 5 datasets y límites |
-| [`docs/database.md`](docs/database.md) | modelo completo: identidad, RBAC, auditoría, alertas (+ reglas en BD), imports y los datos reales del HIS (`his_*`) |
-| [`SECURITY.md`](SECURITY.md) | cómo reportar una vulnerabilidad |
+|-----------|-----------|
+| **Este `README.md`** | Documentación principal del monorepo (empieza aquí) |
+| [`PRESENTACION.md`](PRESENTACION.md) | Guión del pitch + 4 preguntas oficiales del reto |
+| [`docs/presentacion/index.html`](docs/presentacion/index.html) | Diapositivas profesionales (abrir en navegador, tecla F) |
+| [`agent/README.md`](agent/README.md) | Arranque rápido del agente |
+| [`agent/GUIA_CODIGO.md`](agent/GUIA_CODIGO.md) | Tour del código Python |
+| [`agent/DIAGRAMA_FLUJO.md`](agent/DIAGRAMA_FLUJO.md) | Arquitectura + secuencia (espejo del FigJam) |
+| [FigJam arquitectura](https://www.figma.com/board/5XE6rZuQFlOQedlwHzcYEK/Agente-Hospital-Intelligence---secuencia) | Diseño visual de secuencia y componentes |
+| [`docs/diagrams/arquitectura-figjam.png`](docs/diagrams/arquitectura-figjam.png) | Captura del board integrada en §2 |
+| [`agent/DIAGRAMA_AGENTE_AI_ML.md`](agent/DIAGRAMA_AGENTE_AI_ML.md) | Secuencia interna AskService → Planner → Predictor → Recommender |
+| [`agent/TAREAS.md`](agent/TAREAS.md) | Estado del trabajo del equipo AI |
+| [`frontend/README.md`](frontend/README.md) | UI React (rama/carpeta frontend) |
+| [`SECURITY.md`](SECURITY.md) | Política de reporte y garantías |
+| `openapi.json` / `GET /api/v1/openapi.json` | Contrato vivo de la API de negocio |
+| `.env.example` / `agent/.env.example` | Variables comentadas |
 
 ---
 
-## Antes de desplegar
+## 17. Estructura rápida del repo
 
-Checklist completa en `docs/security.md`. En corto: `BETTER_AUTH_SECRET` con
-entropía real, `REDIS_URL` obligatoria, `COOKIE_SECURE=true`, `CORS_ORIGINS`
-solo con https, `TRUST_PROXY` con el número real de saltos, y las claves del
-agente (`AGENT_API_KEY`/`INTERNAL_API_KEY`) rotadas y distintas entre sí.
+```
+Susana-AI/
+├── README.md                 ← estás aquí (doc principal)
+├── PRESENTACION.md           ← guión del pitch
+├── SECURITY.md
+├── docs/diagrams/            ← captura FigJam de arquitectura
+├── ecosystem.config.js       ← PM2 producción
+├── package.json
+├── prisma/                   ← schema + migraciones + seed
+├── src/
+│   ├── core/                 ← auth, rbac, http, middleware, openapi
+│   ├── modules/              ← dominio (alerts, assistant, HIS, …)
+│   └── scripts/              ← import HIS, purge, …
+├── agent/                    ← FastAPI + ML
+│   ├── app/bridge/           ← ask_service, dsl_planner, node_client
+│   ├── app/agent/            ← predictor, recommender, …
+│   └── DIAGRAMA_*.md
+├── frontend/                 ← React (rama frontend / local)
+├── tests/
+├── data/raw/                 ← extractos HIS (gitignored)
+└── scripts/agent-mock.mjs
+```
+
+---
+
+## Licencia / contexto
+
+Proyecto de hackathon *Hospital Intelligence*. El backend actúa como único
+intermediario autorizado entre el frontend y el agente IA.

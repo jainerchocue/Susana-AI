@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Susana-AI — Presentación Hospital Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #F7F8FA;
+      --ink: #1B2430;
+      --primary: #0F62A8;
+      --secondary: #E8A33D;
+      --line: #D3D8DE;
+      --muted: #5A6672;
+      --white: #FFFFFF;
+      --card: #FFFFFF;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #0b1220; font-family: "IBM Plex Sans", system-ui, sans-serif; color: var(--ink); }
+    .deck { height: 100%; overflow: hidden; position: relative; }
+    .slide {
+      display: none; height: 100%; padding: 4.5vh 6vw 7vh;
+      background: var(--bg); flex-direction: column; position: relative;
+    }
+    .slide.active { display: flex; animation: in .28s ease; }
+    @keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .slide.cover { background: var(--bg); }
+    .slide.cover::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 10px; background: var(--primary);
+    }
+    .slide.cover::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 12vh; background: var(--primary);
+    }
+    h1 { font-size: clamp(1.8rem, 3.2vw, 2.6rem); color: var(--primary); font-weight: 700; letter-spacing: -0.02em; }
+    h2 { font-size: clamp(1.05rem, 1.6vw, 1.35rem); color: var(--ink); font-weight: 500; margin-top: .35rem; }
+    .lead { font-size: clamp(1.15rem, 1.8vw, 1.45rem); color: var(--ink); line-height: 1.45; max-width: 42rem; }
+    .muted { color: var(--muted); }
+    .eyebrow { font-size: .95rem; color: var(--muted); font-weight: 500; margin-bottom: .75rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 2rem; flex: 1; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 1.75rem; flex: 1; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.75rem; flex: 1; }
+    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: .85rem; margin-top: 1.75rem; flex: 1; }
+    .card {
+      background: var(--card); border-radius: 10px; padding: 1.35rem 1.4rem;
+      border-top: 4px solid var(--primary); box-shadow: 0 1px 0 rgba(27,36,48,.04);
+    }
+    .card.amber { border-top-color: var(--secondary); }
+    .card h3 { font-size: 1.15rem; margin-bottom: .55rem; }
+    .card p, .card li { font-size: .98rem; color: var(--muted); line-height: 1.45; }
+    .term-row {
+      display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; align-items: start;
+      background: var(--white); border-radius: 10px; padding: 1rem 1.2rem; margin-top: .7rem;
+    }
+    .term-row strong { color: var(--primary); font-size: 1.05rem; }
+    .term-row span { color: var(--ink); font-size: .98rem; line-height: 1.4; }
+    .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; margin-top: 2rem; flex: 1; }
+    .step {
+      background: var(--white); border-radius: 10px; padding: 1.1rem; display: flex; flex-direction: column; gap: .5rem;
+    }
+    .step .n { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+    .step h3 { font-size: 1.05rem; }
+    .step p { font-size: .9rem; color: var(--muted); }
+    .q {
+      display: flex; gap: 1rem; align-items: center; background: var(--white);
+      border-radius: 10px; padding: 1rem 1.25rem; margin-top: .65rem;
+    }
+    .q .badge {
+      min-width: 2.4rem; height: 2.4rem; border-radius: 8px; background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700;
+    }
+    .q.extra .badge { background: var(--secondary); color: var(--ink); }
+    .q p { font-size: 1.1rem; font-weight: 500; }
+    .q small { display: block; color: var(--muted); font-weight: 400; margin-top: .25rem; font-size: .9rem; }
+    .footer-bar {
+      position: absolute; left: 6vw; right: 6vw; bottom: 2.2vh;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: .8rem; color: var(--muted);
+    }
+    .cover .footer-bar, .end .footer-bar { color: rgba(255,255,255,.85); z-index: 2; }
+    .cover .brand-title { font-size: clamp(3rem, 6vw, 4.5rem); color: var(--primary); font-weight: 700; margin-top: 18vh; }
+    .cover .brand-sub { font-size: clamp(1.2rem, 2vw, 1.6rem); margin-top: 1rem; max-width: 36rem; line-height: 1.4; }
+    .cover .tags { position: absolute; left: 6vw; bottom: 5.5vh; z-index: 2; color: #fff; font-weight: 500; font-size: 1.05rem; }
+    .end .brand-title { margin-top: 22vh; }
+    .diagram {
+      margin-top: 1.5rem; flex: 1; background: var(--white); border-radius: 12px;
+      padding: 1.25rem; display: flex; align-items: center; justify-content: center;
+    }
+    .diagram svg { width: 100%; max-height: 52vh; }
+    .note {
+      margin-top: 1rem; padding: .85rem 1rem; background: #eef5fb; border-left: 4px solid var(--primary);
+      border-radius: 0 8px 8px 0; font-size: .95rem; color: var(--ink);
+    }
+    .split { display: grid; grid-template-columns: 1.05fr .95fr; gap: 1.5rem; margin-top: 1.5rem; flex: 1; }
+    .list-plain { list-style: none; margin-top: 1.5rem; }
+    .list-plain li {
+      background: var(--white); border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: .7rem;
+      display: grid; grid-template-columns: 2.2rem 1fr; gap: .8rem; align-items: start;
+    }
+    .list-plain .dot {
+      width: 2rem; height: 2rem; border-radius: 50%; background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: .9rem;
+    }
+    .nav-hint {
+      position: fixed; right: 1rem; bottom: 1rem; z-index: 20; background: rgba(27,36,48,.88);
+      color: #fff; padding: .45rem .7rem; border-radius: 8px; font-size: .75rem;
+    }
+    @media (max-width: 900px) {
+      .grid-3, .grid-4, .grid-5, .steps, .split, .grid-2 { grid-template-columns: 1fr; }
+      .term-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck" id="deck">
+
+    <!-- 1 -->
+    <section class="slide cover active" data-title="Portada">
+      <p class="eyebrow" style="margin-top:6vh">Hackathon Campus Party FUP · Hospital Susana López de Valencia</p>
+      <h1 class="brand-title">Susana-AI</h1>
+      <p class="brand-sub">Asistente inteligente para decidir mejor en la operación del hospital</p>
+      <p class="tags">Prototipo funcional · Datos reales · Predicción y recomendaciones</p>
+      <div class="footer-bar"><span>Hospital Intelligence</span><span>1 / 18</span></div>
+    </section>
+
+    <!-- 2 -->
+    <section class="slide" data-title="Agenda">
+      <h1>Agenda</h1>
+      <h2>Qué vamos a mostrar al jurado</h2>
+      <ol class="list-plain">
+        <li><span class="dot">1</span><div><strong>Problema y objetivos</strong><p class="muted">Por qué el hospital necesita esto</p></div></li>
+        <li><span class="dot">2</span><div><strong>Conceptos claros</strong><p class="muted">Palabras técnicas en español sencillo</p></div></li>
+        <li><span class="dot">3</span><div><strong>Solución, diagramas y seguridad</strong><p class="muted">Cómo funciona Susana-AI</p></div></li>
+        <li><span class="dot">4</span><div><strong>Demo con las 4 preguntas del documento</strong><p class="muted">Más predicción (nuestro valor añadido)</p></div></li>
+        <li><span class="dot">5</span><div><strong>Límites, mejoras y cierre</strong><p class="muted">Honestidad y siguiente paso</p></div></li>
+      </ol>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>2 / 18</span></div>
+    </section>
+
+    <!-- 3 -->
+    <section class="slide" data-title="Problema">
+      <h1>El problema</h1>
+      <h2>Los datos existen. Las decisiones llegan tarde.</h2>
+      <div class="grid-3">
+        <div class="card amber">
+          <h3>~500 pacientes / día</h3>
+          <p>Urgencias, hospitalización y consulta generan mucha información cada jornada.</p>
+        </div>
+        <div class="card">
+          <h3>Información dispersa</h3>
+          <p>Historia clínica, farmacia y admisiones viven en sistemas distintos y en Excel.</p>
+        </div>
+        <div class="card">
+          <h3>Reportes manuales</h3>
+          <p>Directivos piden tablas a TI o las arman a mano. Pierden horas críticas.</p>
+        </div>
+      </div>
+      <p class="note"><strong>Impacto:</strong> calidad de atención al paciente y eficiencia del gasto en salud.</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>3 / 18</span></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="slide" data-title="Objetivos">
+      <h1>Objetivos del prototipo</h1>
+      <h2>Lo que pedía el reto — y lo que entregamos</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>1. Consultar en español</h3>
+          <p>Preguntar al sistema como se habla, sin saber lenguajes de base de datos.</p>
+        </div>
+        <div class="card">
+          <h3>2. Ver indicadores clave</h3>
+          <p>Ocupación, esperas, demanda, farmacia y quirófanos en un panel.</p>
+        </div>
+        <div class="card">
+          <h3>3. Alertar a tiempo</h3>
+          <p>Avisos automáticos cuando stock, ocupación o esperas se salen de lo normal.</p>
+        </div>
+        <div class="card amber">
+          <h3>4. Anticipar y recomendar</h3>
+          <p>Estimar demanda próxima y sugerir acciones operativas (nunca clínicas).</p>
+        </div>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>4 / 18</span></div>
+    </section>
+
+    <!-- 5 -->
+    <section class="slide" data-title="Conceptos 1">
+      <h1>Conceptos clave</h1>
+      <h2>Palabras técnicas → explicación sencilla</h2>
+      <div class="term-row"><strong>Agente de IA</strong><span>Programa que entiende una pregunta en español y busca la respuesta en los datos del hospital.</span></div>
+      <div class="term-row"><strong>Dashboard</strong><span>Pantalla con números y gráficas importantes (ocupación, esperas, stock…).</span></div>
+      <div class="term-row"><strong>KPI</strong><span>Indicador clave: un número que resume si algo va bien o mal (ej. % de camas ocupadas).</span></div>
+      <div class="term-row"><strong>HIS</strong><span>Sistema de Información Hospitalaria: donde viven ingresos, triage, medicamentos, etc.</span></div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>5 / 18</span></div>
+    </section>
+
+    <!-- 6 -->
+    <section class="slide" data-title="Conceptos 2">
+      <h1>Más conceptos</h1>
+      <h2>Seguridad y predicción, sin tecnicismos</h2>
+      <div class="term-row"><strong>Node (BFF)</strong><span>El “portero” del sistema: autentica al usuario, revisa permisos y ejecuta consultas seguras.</span></div>
+      <div class="term-row"><strong>DSL</strong><span>Formato seguro de pedido de datos. El agente propone; Node revisa; solo entonces se consulta la base.</span></div>
+      <div class="term-row"><strong>RBAC</strong><span>Control por roles: farmacia no ve lo mismo que el director.</span></div>
+      <div class="term-row"><strong>Random Forest</strong><span>Modelo de predicción: mira el patrón de días pasados y estima qué puede pasar después.</span></div>
+      <div class="term-row"><strong>Ticket</strong><span>Pase temporal para que el agente solo consulte un rato y con límites.</span></div>
+      <p class="note"><strong>Frase ancla:</strong> El agente propone. Node autoriza. El hospital decide.</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>6 / 18</span></div>
+    </section>
+
+    <!-- 7 -->
+    <section class="slide" data-title="Solución">
+      <h1>La solución: Susana-AI</h1>
+      <h2>Tres piezas que trabajan juntas</h2>
+      <div class="grid-3">
+        <div class="card">
+          <h3>1. Panel</h3>
+          <p>Ve de un vistazo ocupación, tiempos de espera, demanda, farmacia y cirugías.</p>
+        </div>
+        <div class="card">
+          <h3>2. Alertas</h3>
+          <p>El sistema avisa solo: stock bajo, mucha ocupación, esperas largas.</p>
+        </div>
+        <div class="card amber">
+          <h3>3. Asistente IA</h3>
+          <p>Preguntas en español → datos reales + predicción + recomendación operativa.</p>
+        </div>
+      </div>
+      <p class="note">No es un chat que inventa cifras: usa datos reales del hospital.</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>7 / 18</span></div>
+    </section>
+
+    <!-- 8 -->
+    <section class="slide" data-title="Flujo">
+      <h1>Cómo funciona</h1>
+      <h2>De la pregunta a la decisión — 5 pasos</h2>
+      <div class="steps">
+        <div class="step"><div class="n">1</div><h3>Preguntas</h3><p>En el chat o desde una alerta</p></div>
+        <div class="step"><div class="n">2</div><h3>Node revisa</h3><p>Sesión, permisos y límites</p></div>
+        <div class="step"><div class="n">3</div><h3>Agente propone</h3><p>Qué datos necesita (DSL)</p></div>
+        <div class="step"><div class="n">4</div><h3>Node consulta</h3><p>Valida y lee la base HIS</p></div>
+        <div class="step"><div class="n">5</div><h3>Respuesta útil</h3><p>Datos + predicción + tip</p></div>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>8 / 18</span></div>
+    </section>
+
+    <!-- 9 Arquitectura diagrama -->
+    <section class="slide" data-title="Arquitectura">
+      <h1>Arquitectura</h1>
+      <h2>Diagrama de componentes (diseño del equipo)</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 1100 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama de arquitectura">
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#0F62A8"/></marker>
+          </defs>
+          <!-- Cliente -->
+          <rect x="20" y="40" width="220" height="340" rx="12" fill="#F7F8FA" stroke="#D3D8DE"/>
+          <text x="130" y="75" text-anchor="middle" fill="#0F62A8" font-size="16" font-weight="700" font-family="IBM Plex Sans, sans-serif">Cliente</text>
+          <ellipse cx="130" cy="200" rx="78" ry="48" fill="#0F62A8"/>
+          <text x="130" y="195" text-anchor="middle" fill="#fff" font-size="15" font-weight="600" font-family="IBM Plex Sans, sans-serif">Frontend</text>
+          <text x="130" y="215" text-anchor="middle" fill="#fff" font-size="13" font-family="IBM Plex Sans, sans-serif">React</text>
+          <!-- Servicios -->
+          <rect x="300" y="40" width="480" height="340" rx="12" fill="#EEF5FB" stroke="#0F62A8" stroke-width="1.5"/>
+          <text x="540" y="75" text-anchor="middle" fill="#0F62A8" font-size="16" font-weight="700" font-family="IBM Plex Sans, sans-serif">Servicios</text>
+          <rect x="340" y="130" width="180" height="160" rx="10" fill="#0F62A8"/>
+          <text x="430" y="195" text-anchor="middle" fill="#fff" font-size="15" font-weight="700" font-family="IBM Plex Sans, sans-serif">Node BFF</text>
+          <text x="430" y="220" text-anchor="middle" fill="#D6E8F7" font-size="12" font-family="IBM Plex Sans, sans-serif">:3000 y :3001</text>
+          <rect x="560" y="130" width="180" height="160" rx="10" fill="#1B2430"/>
+          <text x="650" y="195" text-anchor="middle" fill="#fff" font-size="15" font-weight="700" font-family="IBM Plex Sans, sans-serif">Agente</text>
+          <text x="650" y="220" text-anchor="middle" fill="#C5CCD4" font-size="12" font-family="IBM Plex Sans, sans-serif">Python :8000</text>
+          <!-- Datos -->
+          <rect x="840" y="40" width="240" height="340" rx="12" fill="#F7F8FA" stroke="#D3D8DE"/>
+          <text x="960" y="75" text-anchor="middle" fill="#0F62A8" font-size="16" font-weight="700" font-family="IBM Plex Sans, sans-serif">Datos</text>
+          <ellipse cx="960" cy="170" rx="70" ry="42" fill="#E8A33D"/>
+          <text x="960" y="175" text-anchor="middle" fill="#1B2430" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">PostgreSQL</text>
+          <ellipse cx="960" cy="290" rx="70" ry="42" fill="#D3D8DE"/>
+          <text x="960" y="295" text-anchor="middle" fill="#1B2430" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Redis</text>
+          <!-- arrows -->
+          <line x1="210" y1="200" x2="335" y2="200" stroke="#0F62A8" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="270" y="185" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">/assistant/query</text>
+          <line x1="520" y1="190" x2="555" y2="190" stroke="#0F62A8" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="555" y1="230" x2="520" y2="230" stroke="#E8A33D" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="538" y="175" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">/v1/ask</text>
+          <line x1="780" y1="170" x2="885" y2="170" stroke="#0F62A8" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="830" y="155" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">SQL validado</text>
+          <line x1="780" y1="280" x2="885" y2="280" stroke="#0F62A8" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="830" y="265" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">tickets</text>
+        </svg>
+      </div>
+      <p class="note">El frontend nunca habla directo con la base. Solo Node escribe SQL validado.</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>9 / 18</span></div>
+    </section>
+
+    <!-- 10 Secuencia -->
+    <section class="slide" data-title="Secuencia">
+      <h1>Secuencia de una pregunta</h1>
+      <h2>Diagrama de flujo (mismo diseño del FigJam del equipo)</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 1100 460" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#0F62A8"/></marker>
+          </defs>
+          <text x="70" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">User</text>
+          <text x="250" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Frontend</text>
+          <text x="450" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Node público</text>
+          <text x="650" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Agente</text>
+          <text x="850" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Node interno</text>
+          <text x="1020" y="28" text-anchor="middle" fill="#0F62A8" font-size="13" font-weight="700" font-family="IBM Plex Sans, sans-serif">Postgres</text>
+          <line x1="70" y1="40" x2="70" y2="440" stroke="#D3D8DE"/>
+          <line x1="250" y1="40" x2="250" y2="440" stroke="#D3D8DE"/>
+          <line x1="450" y1="40" x2="450" y2="440" stroke="#D3D8DE"/>
+          <line x1="650" y1="40" x2="650" y2="440" stroke="#D3D8DE"/>
+          <line x1="850" y1="40" x2="850" y2="440" stroke="#D3D8DE"/>
+          <line x1="1020" y1="40" x2="1020" y2="440" stroke="#D3D8DE"/>
+          <!-- messages -->
+          <line x1="70" y1="70" x2="250" y2="70" stroke="#1B2430" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="160" y="62" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">Pregunta / profundizar alerta</text>
+          <line x1="250" y1="110" x2="450" y2="110" stroke="#0F62A8" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="350" y="102" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">POST /assistant/query</text>
+          <line x1="450" y1="155" x2="650" y2="155" stroke="#0F62A8" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="550" y="147" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">POST /v1/ask + ticket</text>
+          <line x1="650" y1="200" x2="850" y2="200" stroke="#0F62A8" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="750" y="192" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">DSL (pedido seguro)</text>
+          <line x1="850" y1="240" x2="1020" y2="240" stroke="#0F62A8" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="935" y="232" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">Validar y ejecutar</text>
+          <line x1="1020" y1="280" x2="850" y2="280" stroke="#E8A33D" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="935" y="272" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">filas</text>
+          <line x1="850" y1="315" x2="650" y2="315" stroke="#E8A33D" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="750" y="307" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">datos + serie (predicción)</text>
+          <line x1="650" y1="360" x2="450" y2="360" stroke="#E8A33D" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="550" y="352" text-anchor="middle" fill="#5A6672" font-size="11" font-family="IBM Plex Sans, sans-serif">respuesta</text>
+          <line x1="450" y1="395" x2="250" y2="395" stroke="#E8A33D" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <line x1="250" y1="425" x2="70" y2="425" stroke="#1B2430" stroke-width="1.5" marker-end="url(#arrow2)"/>
+          <text x="160" y="418" text-anchor="middle" fill="#1B2430" font-size="12" font-weight="600" font-family="IBM Plex Sans, sans-serif">Datos · Anticipación · Decisión</text>
+        </svg>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>10 / 18</span></div>
+    </section>
+
+    <!-- 11 Agente -->
+    <section class="slide" data-title="Agente">
+      <h1>El agente, paso a paso</h1>
+      <h2>Planner → Node → Predictor → Recommender</h2>
+      <div class="grid-4">
+        <div class="card">
+          <h3>1. Planner</h3>
+          <p>Traduce la pregunta a un pedido seguro de datos (DSL).</p>
+        </div>
+        <div class="card">
+          <h3>2. Node</h3>
+          <p>Revisa el pedido y trae filas del HIS. Aquí se protege la base.</p>
+        </div>
+        <div class="card">
+          <h3>3. Predictor</h3>
+          <p>Si hay historia suficiente (≥12 días): Random Forest. Si no: tendencia simple.</p>
+        </div>
+        <div class="card amber">
+          <h3>4. Recommender</h3>
+          <p>Sugiere una acción operativa (ej. revisar stock o capacidad).</p>
+        </div>
+      </div>
+      <p class="note">El agente <strong>nunca</strong> ejecuta SQL directo ni abre la base de datos.</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>11 / 18</span></div>
+    </section>
+
+    <!-- 12 Entrega -->
+    <section class="slide" data-title="Entrega">
+      <h1>Qué entregamos</h1>
+      <h2>Prototipo real, no solo una idea</h2>
+      <div class="grid-3">
+        <div class="card"><h3>Login y roles</h3><p>Cada persona ve solo lo que le corresponde.</p></div>
+        <div class="card"><h3>Panel hospitalario</h3><p>Ocupación, esperas, demanda, farmacia.</p></div>
+        <div class="card"><h3>Alertas</h3><p>Avisos automáticos por umbrales.</p></div>
+        <div class="card"><h3>Asistente + ML</h3><p>Preguntas, predicción y tips.</p></div>
+        <div class="card"><h3>Datos HIS reales</h3><p>Importados desde extractos del hospital.</p></div>
+        <div class="card amber"><h3>Documentación</h3><p>README, diagramas FigJam y guía de demo.</p></div>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>12 / 18</span></div>
+    </section>
+
+    <!-- 13 Tech -->
+    <section class="slide" data-title="Tecnologías">
+      <h1>Tecnologías</h1>
+      <h2>Elegidas para demo real y seguridad</h2>
+      <div class="term-row"><strong>Pantallas</strong><span><b>React + Vite</b> — interfaz moderna; despliegue típico en Vercel.</span></div>
+      <div class="term-row"><strong>Servidor</strong><span><b>Node + Express + Prisma</b> — portero: login, permisos y consultas seguras.</span></div>
+      <div class="term-row"><strong>Datos</strong><span><b>PostgreSQL + Redis</b> — HIS real + pases temporales del asistente.</span></div>
+      <div class="term-row"><strong>Agente</strong><span><b>Python FastAPI</b> — servicio rápido para entender preguntas.</span></div>
+      <div class="term-row"><strong>Predicción</strong><span><b>scikit-learn (Random Forest)</b> — ML reproducible sobre series del hospital.</span></div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>13 / 18</span></div>
+    </section>
+
+    <!-- 14 Seguridad -->
+    <section class="slide" data-title="Seguridad">
+      <h1>Seguridad y confianza</h1>
+      <h2>En un hospital, la IA no manda sobre los datos</h2>
+      <div class="grid-2">
+        <div class="card"><h3>El agente no toca la base</h3><p>Solo propone un pedido. Node lo revisa y ejecuta.</p></div>
+        <div class="card"><h3>Roles distintos</h3><p>Farmacia, director y admin no ven lo mismo.</p></div>
+        <div class="card"><h3>Sin datos personales en el chat</h3><p>Respuestas agregadas: totales y promedios, no nombres.</p></div>
+        <div class="card amber"><h3>Claves y auditoría</h3><p>Secretos fuera del código; lecturas sensibles quedan registradas.</p></div>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>14 / 18</span></div>
+    </section>
+
+    <!-- 15 Preguntas del documento -->
+    <section class="slide" data-title="Demo documento">
+      <h1>Demo: preguntas del documento del reto</h1>
+      <h2>Las 4 preguntas oficiales que debemos demostrar</h2>
+      <div class="q">
+        <div class="badge">1</div>
+        <p>¿Cuántas camas de UCI están ocupadas hoy?
+          <small>Muestra ocupación / capacidad del servicio crítico.</small>
+        </p>
+      </div>
+      <div class="q">
+        <div class="badge">2</div>
+        <p>¿Cuáles son los medicamentos con menos de 5 días de inventario?
+          <small>Stock crítico — alerta de desabastecimiento.</small>
+        </p>
+      </div>
+      <div class="q">
+        <div class="badge">3</div>
+        <p>¿Cuál es el tiempo de espera promedio en urgencias en la última semana?
+          <small>KPI de calidad de atención.</small>
+        </p>
+      </div>
+      <div class="q">
+        <div class="badge">4</div>
+        <p>¿Qué servicio tiene más pacientes ingresados este mes?
+          <small>Demanda por servicio / especialidad.</small>
+        </p>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>15 / 18</span></div>
+    </section>
+
+    <!-- 16 Extra predicción -->
+    <section class="slide" data-title="Demo extra">
+      <h1>Demo extra: nuestro valor añadido</h1>
+      <h2>Más allá del documento — predicción y decisión</h2>
+      <div class="q extra">
+        <div class="badge">★</div>
+        <p>¿Cómo se ve la demanda / ocupación la próxima semana?
+          <small>Random Forest (o tendencia) + recomendación operativa.</small>
+        </p>
+      </div>
+      <div class="grid-2" style="margin-top:1.5rem">
+        <div class="card">
+          <h3>Qué mostrar</h3>
+          <p>Dato histórico → anticipación numérica → tip accionable (ej. revisar capacidad o stock).</p>
+        </div>
+        <div class="card amber">
+          <h3>Qué decir</h3>
+          <p>“No solo respondemos el pasado: ayudamos a anticipar la operación del hospital.”</p>
+        </div>
+      </div>
+      <p class="note">También se puede profundizar desde una <strong>alerta</strong> del briefing (flujo alerts-first).</p>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>16 / 18</span></div>
+    </section>
+
+    <!-- 17 Limitaciones -->
+    <section class="slide" data-title="Futuro">
+      <h1>Limitaciones y trabajo futuro</h1>
+      <h2>Honestidad + roadmap (como pide el documento)</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Hoy</h3>
+          <p>• Predicción por consulta (aún sin modelo guardado)<br/>
+             • Planificador principal por reglas claras<br/>
+             • Frontend y API pueden estar en hosts distintos</p>
+        </div>
+        <div class="card amber">
+          <h3>Mañana</h3>
+          <p>• Guardar y calibrar el modelo con el hospital<br/>
+             • Integrar Historia Clínica en tiempo real<br/>
+             • Modelo local (más privacidad)<br/>
+             • Mejor explicación de causa raíz</p>
+        </div>
+      </div>
+      <div class="footer-bar"><span>Susana-AI · Hospital Intelligence</span><span>17 / 18</span></div>
+    </section>
+
+    <!-- 18 Cierre -->
+    <section class="slide cover end" data-title="Cierre">
+      <h1 class="brand-title">Susana-AI</h1>
+      <p class="brand-sub">De datos dispersos a decisiones con evidencia.<br/><span class="muted" style="display:inline-block;margin-top:.8rem">El agente propone. Node autoriza. El hospital decide.</span></p>
+      <p class="tags">Gracias · ¿Preguntas del jurado? · github.com/jainerchocue/Susana-AI</p>
+      <div class="footer-bar"><span>Hospital Intelligence</span><span>18 / 18</span></div>
+    </section>
+  </div>
+
+  <div class="nav-hint">← → o clic · F pantalla completa · N notas</div>
+
+  <script>
+    const slides = [...document.querySelectorAll('.slide')];
+    let i = 0;
+    const notes = {
+      0: "Saluda. Di: prototipo funcional con datos reales. Demo al final.",
+      1: "Recorre la agenda en 15 segundos.",
+      2: "Escena: el jefe pide un Excel a las 10 y llega a las 4.",
+      3: "Lee los 4 objetivos. SQL = lenguaje de bases; el usuario no lo necesita.",
+      4: "Diccionario. Si preguntan HIS/KPI, quédate aquí.",
+      5: "Frase ancla: el agente propone, Node autoriza.",
+      6: "Tres pilares. Recomendación operativa, NUNCA clínica.",
+      7: "Cuenta 1→5 con la mano.",
+      8: "Señala Cliente · Servicios · Datos.",
+      9: "Sigue las flechas de arriba a abajo.",
+      10: "Nunca digas que el agente ejecuta SQL.",
+      11: "Enfatiza: funciona hoy.",
+      12: "Justifica el 'para qué', no las versiones.",
+      13: "La IA no es autoridad de datos.",
+      14: "Abre el sistema. Haz las 4 preguntas EXACTAS del documento.",
+      15: "Extra Random Forest. Frase: no solo el pasado, también anticipar.",
+      16: "Honestidad suma puntos.",
+      17: "Repite frase ancla. Invita preguntas."
+    };
+
+    function show(n) {
+      i = Math.max(0, Math.min(slides.length - 1, n));
+      slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
+      document.title = `Susana-AI (${i + 1}/${slides.length}) — ${slides[i].dataset.title}`;
+    }
+    function next() { show(i + 1); }
+    function prev() { show(i - 1); }
+
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); next(); }
+      if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); prev(); }
+      if (e.key === 'Home') show(0);
+      if (e.key === 'End') show(slides.length - 1);
+      if (e.key === 'f' || e.key === 'F') {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        alert('Nota para esta diapositiva:\\n\\n' + (notes[i] || ''));
+      }
+    });
+    document.getElementById('deck').addEventListener('click', (e) => {
+      if (e.clientX > window.innerWidth * 0.55) next();
+      else prev();
+    });
+    show(0);
+  </script>
+</body>
+</html>
