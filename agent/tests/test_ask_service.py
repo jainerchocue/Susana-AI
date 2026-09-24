@@ -82,8 +82,11 @@ def test_v1_ask_contrato_completo(node, catalogo_json, ref_iso) -> None:
     )
     assert r.status_code == 200
     cuerpo = r.json()
-    assert set(cuerpo) == {"status", "answer"} and cuerpo["status"] == "ok"
+    assert set(cuerpo) == {"status", "answer", "visual"} and cuerpo["status"] == "ok"
     assert "29 camas ocupadas de 37" in cuerpo["answer"]
+    # Una sola unidad: cifras destacadas; sin datos en la especificación (salen de las filas de Node).
+    assert cuerpo["visual"]["type"] == "kpi" and cuerpo["visual"]["queryIndex"] == 0
+    assert [c["key"] for c in cuerpo["visual"]["columns"]] == ["sum_census", "sum_physical_beds", "avg_occupancy_pct", "sum_virtual_census"]
     assert falso.consultas[0]["dataset"] == "bed_occupancy"
 
 

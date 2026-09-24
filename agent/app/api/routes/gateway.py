@@ -58,6 +58,8 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     status: Literal["ok", "cannot_answer"]
     answer: str = Field(..., max_length=4000)
+    # Tabla/gráfica sugerida (sin datos: Node la valida contra las filas que ejecutó).
+    visual: dict[str, Any] | None = None
 
 
 def _require_ask_key(x_internal_key: str | None) -> None:
@@ -89,4 +91,4 @@ async def v1_ask(
         limits=body.limits.model_dump(),
         context=body.context.model_dump(),
     )
-    return AskResponse(status=result["status"], answer=result["answer"])
+    return AskResponse(status=result["status"], answer=result["answer"], visual=result.get("visual"))

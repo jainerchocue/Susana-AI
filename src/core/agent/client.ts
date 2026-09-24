@@ -42,12 +42,17 @@ export interface AgentAskInput {
 export interface AgentAnswer {
   status: 'ok' | 'cannot_answer';
   answer: string;
+  /** Tabla/grafica sugerida. SIN validar aqui: el modulo del asistente la valida contra lo que Node ejecuto. */
+  visual?: unknown;
 }
 
 /** El cuerpo que devuelve Python es texto NO confiable: se valida con Zod. */
 const respuestaAgenteSchema = z.object({
   status: z.enum(['ok', 'cannot_answer']),
   answer: z.string().max(4000),
+  // Opcional y laxo a proposito: una especificacion visual invalida se descarta
+  // mas adelante, no debe convertir una respuesta valida en un 502.
+  visual: z.unknown().optional(),
 });
 
 /**

@@ -17,7 +17,7 @@ from typing import Any
 
 from app.bridge.dsl import Catalogo, validar
 from app.bridge.llm import Deadline, planificar_con_llm, pulir
-from app.bridge.narrator import describir_filtros, redactar
+from app.bridge.narrator import describir_filtros, redactar_con_visual
 from app.bridge.nlu import TZ, clasificar_conversacion, interpretar, norm
 from app.bridge.node_client import ejecutar_en_node
 from app.bridge.planner import NOMBRE_TEMA, Plan, SinPlan, planificar
@@ -109,8 +109,11 @@ def _fecha_contexto(context: dict[str, Any] | None, clave: str) -> datetime | No
         return None
 
 
-def _salida(status: str, answer: str) -> dict[str, str]:
-    return {"status": status, "answer": answer.strip()[:_MAX_ANSWER]}
+def _salida(status: str, answer: str, visual: dict[str, Any] | None = None) -> dict[str, Any]:
+    salida: dict[str, Any] = {"status": status, "answer": answer.strip()[:_MAX_ANSWER]}
+    if visual:
+        salida["visual"] = visual
+    return salida
 
 
 async def handle_ask(
@@ -120,7 +123,7 @@ async def handle_ask(
     catalog: list[dict[str, Any]],
     limits: dict[str, Any] | None = None,
     context: dict[str, Any] | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     deadline = Deadline(settings.ask_budget_seconds)
     limits = limits or {}
     max_rows = max(1, int(limits.get("maxRows") or 100))
@@ -167,6 +170,6 @@ async def handle_ask(
         resultados.append(await ejecutar_en_node(ticket, extra))
 
     # El pronóstico entrena un modelo pequeño: fuera del event loop.
-    texto = await asyncio.to_thread(redactar, plan, resultados, ref, _fecha_contexto(context, "dataStart"))
+    texto, visual = await asyncio.to_thread(redactar_con_visual, plan, resultados, ref, _fecha_contexto(context, "dataStart"))
     pulido = await pulir(texto, question, deadline=deadline)
-    return _salida("ok", pulido or texto)
+    return _salida("ok", pulido or texto, visual)

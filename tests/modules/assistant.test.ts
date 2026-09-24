@@ -322,3 +322,66 @@ describe('POST /api/v1/assistant/query', () => {
     expect(res.body.error.code).toBe('AGENT_ERROR');
   });
 });
+
+describe('Tabla/grafica sugerida por el agente (visual)', () => {
+  /** El stub ejecuta un conteo de alertas por severidad y responde con el `visual` que se le pase. */
+  async function preguntarConVisual(visual: unknown) {
+    await sembrarAlertas();
+    const u = await crearUsuarioConRol('FARMACIA');
+    manejador = async (cuerpo) => {
+      await llamarInterno(cuerpo.ticket, {
+        dataset: 'alerts',
+        metrics: [{ agg: 'count' }],
+        groupBy: [{ field: 'severity' }],
+        limit: 100,
+      });
+      return { status: 200, body: { status: 'ok', answer: 'Hay 2 alertas de medicamento.', visual } };
+    };
+    return api().post('/api/v1/assistant/query').set('Authorization', `Bearer ${u.token}`).send({ question: 'Alertas por severidad' });
+  }
+
+  const valido = {
+    type: 'bar',
+    title: 'Alertas por severidad',
+    queryIndex: 0,
+    x: 'severity',
+    xLabel: 'Severidad',
+    columns: [{ key: 'count_all', label: 'Alertas', decimals: 0 }],
+    valueLabels: { WARNING: 'advertencia' },
+  };
+
+  it('visual valido contra las columnas ejecutadas -> se devuelve tal cual', async () => {
+    const res = await preguntarConVisual(valido);
+    expect(res.status).toBe(200);
+    expect(res.body.data.visual).toEqual(valido);
+    // Los datos del grafico son los de Node, no los del agente.
+    expect(res.body.data.queries[0].columns).toEqual(['severity', 'count_all']);
+  });
+
+  it('columna que Node no devolvio -> visual null, la respuesta sigue siendo 200', async () => {
+    const res = await preguntarConVisual({ ...valido, columns: [{ key: 'sum_value', label: 'Inventado' }] });
+    expect(res.status).toBe(200);
+    expect(res.body.data.answer).toBe('Hay 2 alertas de medicamento.');
+    expect(res.body.data.visual).toBeNull();
+  });
+
+  it('forma invalida (campo extra, queryIndex sin consulta, proyeccion en barras) -> visual null', async () => {
+    for (const malo of [
+      { ...valido, html: '<script>alert(1)</script>' },
+      { ...valido, queryIndex: 3 },
+      { ...valido, projection: { label: 'Proyeccion', points: [{ x: '2026-09-22', y: 1 }] } },
+      { ...valido, x: undefined },
+      'no es un objeto',
+    ]) {
+      const res = await preguntarConVisual(malo);
+      expect(res.status).toBe(200);
+      expect(res.body.data.visual).toBeNull();
+    }
+  });
+
+  it('sin visual -> null (agentes anteriores siguen funcionando)', async () => {
+    const res = await preguntarConVisual(undefined);
+    expect(res.status).toBe(200);
+    expect(res.body.data.visual).toBeNull();
+  });
+});

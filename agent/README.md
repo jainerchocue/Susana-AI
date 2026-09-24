@@ -34,6 +34,8 @@ React → Node :3000 /assistant/query
                       ├─ dsl.py      valida el DSL con las mismas reglas que Node
                       ├─ Node :3001 /internal/agent/query  (ticket) → filas
                       ├─ narrator.py redacta SOLO con esas filas + qué se midió, dónde y con qué fecha de corte
+                      ├─ visual.py   sugiere tabla/gráfica (kpi, bar, line, table) SIN datos: Node la valida
+                      │              contra las columnas ejecutadas y React la dibuja desde `queries[i].rows`
                       └─ llm.py      pule la redacción; se descarta si añade, quita o cambia una cifra
 ```
 

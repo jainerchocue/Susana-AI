@@ -17,6 +17,7 @@ from app.agent.predictor import _DIAS_ES, proyectar
 from app.analytics.statistics import mean, safe_number, simple_trend
 from app.bridge.dsl import alias_metrica
 from app.bridge.planner import ETIQUETA_DIM, Plan
+from app.bridge.visual import construir_visual
 from app.bridge.textos import (
     articulo,
     etiqueta_periodo,
@@ -94,11 +95,40 @@ def redactar(
     plan: Plan, resultados: list[dict[str, Any] | None], ref: datetime | None, inicio: datetime | None = None
 ) -> str:
     """Respuesta final. `resultados` va alineado con [plan.consulta, *plan.extras]."""
+    return redactar_con_visual(plan, resultados, ref, inicio)[0]
+
+
+def redactar_con_visual(
+    plan: Plan, resultados: list[dict[str, Any] | None], ref: datetime | None, inicio: datetime | None = None
+) -> tuple[str, dict[str, Any] | None]:
+    """Texto + especificación de tabla/gráfica (sin datos: el frontend los toma de las filas de Node)."""
+    salida: dict[str, Any] = {}
+    texto = _redactar(plan, resultados, ref, inicio, salida)
+    return texto, construir_visual(plan, resultados, omitir=_omitir(plan, resultados, Corte(ref, inicio)), proyeccion=salida.get("proyeccion"))
+
+
+def _omitir(plan: Plan, resultados: list[dict[str, Any] | None], corte: Corte) -> list[str]:
+    """Periodos que la gráfica no debe dibujar como dato real (incompletos o posteriores al corte)."""
+    gb = plan.consulta.get("groupBy") or []
+    if not gb or not gb[0].get("grain") or plan.consulta["metrics"][0]["agg"] not in {"count", "sum"}:
+        return []
+    filas = _filas(resultados[0] if resultados else None)
+    campo = gb[0]["field"]
+    claves = sorted((f.get(campo) for f in filas if parse_fecha(f.get(campo))), key=lambda k: parse_fecha(k) or datetime.min)
+    if plan.pronostico and corte.ref:
+        return [k for k in claves if (parse_fecha(k) or corte.ref).date() >= corte.ref.date()]
+    pts = [(k, 0.0) for k in claves]
+    return [pts[i][0] for i in sorted(_incompletos(plan, pts, gb[0]["grain"], corte))] if len(pts) > 1 else []
+
+
+def _redactar(
+    plan: Plan, resultados: list[dict[str, Any] | None], ref: datetime | None, inicio: datetime | None, salida: dict[str, Any]
+) -> str:
     corte = Corte(ref, inicio)
     principal = resultados[0] if resultados else None
     extras = resultados[1:]
     if plan.pronostico:
-        cuerpo = _pronostico(plan, _filas(principal), ref)
+        cuerpo = _pronostico(plan, _filas(principal), ref, salida)
     elif plan.serie:
         cuerpo = _serie(plan, _filas(principal), corte)
     elif plan.tema == "occupancy":
@@ -505,7 +535,7 @@ def _serie_texto(
     return texto
 
 
-def _pronostico(plan: Plan, filas: list[dict[str, Any]], ref: datetime | None) -> str:
+def _pronostico(plan: Plan, filas: list[dict[str, Any]], ref: datetime | None, salida: dict[str, Any] | None = None) -> str:
     medida, dec = _MEDIDA_SERIE.get(plan.tema, ("registros", 0))
     medida_dia = {"admissions": "ingresos diarios", "wait": "espera promedio diaria (minutos)"}.get(plan.tema, f"{medida} por día")
     alcance = _alcance(plan)
@@ -529,6 +559,8 @@ def _pronostico(plan: Plan, filas: list[dict[str, Any]], ref: datetime | None) -
         return _con(f"No pude calcular una proyección fiable de {medida_dia}", alcance) + "."
     proy.valores = proy.valores[hueco:]
     fechas = [ultimo + timedelta(days=hueco + i + 1) for i in range(plan.horizonte)]
+    if salida is not None:
+        salida["proyeccion"] = [(f.strftime("%Y-%m-%d"), v) for f, v in zip(fechas, proy.valores, strict=True)]
     base = mean(valores[-7:]) or 0
     prom = mean(proy.valores) or 0
     decs = dec or 1

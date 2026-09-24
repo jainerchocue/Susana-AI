@@ -90,8 +90,61 @@ const consultaEjecutadaResponseSchema = z.object({
   truncated: z.boolean(),
 });
 
+/**
+ * Tabla/grafica sugerida por el agente para la respuesta. NO lleva datos: el
+ * frontend los toma de `queries[queryIndex].rows` (lo que Node ejecuto). La
+ * unica excepcion es `projection`: valores proyectados por el agente, que se
+ * dibujan aparte y rotulados como proyeccion. Todo `.strict()` y acotado: es
+ * texto de un tercero que termina en la UI.
+ */
+const columnaResultado = z.string().regex(/^[a-z][a-z0-9_]{0,80}$/);
+
+export const visualSchema = z
+  .object({
+    type: z.enum(['kpi', 'bar', 'line', 'table']),
+    title: z.string().min(1).max(120),
+    subtitle: z.string().max(240).optional(),
+    queryIndex: z.number().int().min(0).max(9),
+    x: columnaResultado.optional(),
+    xLabel: z.string().max(80).optional(),
+    grain: z.enum(['day', 'week', 'month', 'year']).optional(),
+    fillMissing: z.boolean().optional(),
+    columns: z
+      .array(
+        z
+          .object({
+            key: columnaResultado,
+            label: z.string().min(1).max(80),
+            unit: z.string().max(16).optional(),
+            decimals: z.number().int().min(0).max(2).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(8),
+    valueLabels: z
+      .record(z.string().max(200), z.string().max(160))
+      .refine((m) => Object.keys(m).length <= 200, 'Demasiadas etiquetas.')
+      .optional(),
+    omit: z.array(z.string().max(64)).max(10).optional(),
+    projection: z
+      .object({
+        label: z.string().min(1).max(80),
+        points: z
+          .array(z.object({ x: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), y: z.number().finite() }).strict())
+          .min(1)
+          .max(31),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export type Visual = z.infer<typeof visualSchema>;
+
 export const assistantResponseSchema = z.object({
   status: z.enum(['ok', 'cannot_answer']),
   answer: z.string(),
   queries: z.array(consultaEjecutadaResponseSchema),
+  visual: visualSchema.nullable(),
 });

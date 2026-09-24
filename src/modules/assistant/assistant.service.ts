@@ -10,7 +10,8 @@ import { datasetsPara, describirParaAgente } from './assistant.catalog';
 import { HIS_ZONA_HORARIA, fechaReferencia } from '../his/his.periodo';
 import { emitirTicket, guardarResultado, leerResultados, revocarTicket, usarTicket } from './assistant.tickets';
 import { ejecutarConsulta, validarConsulta, type ResultadoConsulta } from './assistant.query';
-import type { AskInput, InternalQueryInput, QuerySpec } from './assistant.schemas';
+import type { AskInput, InternalQueryInput, QuerySpec, Visual } from './assistant.schemas';
+import { validarVisual } from './assistant.visual';
 
 /**
  * Orquesta el flujo completo: emite el ticket, le pasa a Python un catalogo
@@ -22,6 +23,8 @@ export interface RespuestaAsistente {
   status: 'ok' | 'cannot_answer';
   answer: string;
   queries: Array<{ query: QuerySpec } & ResultadoConsulta>;
+  /** Tabla/grafica para `queries[visual.queryIndex]`, ya validada contra lo ejecutado. */
+  visual: Visual | null;
 }
 
 export async function preguntar(
@@ -85,7 +88,7 @@ export async function preguntar(
       ...meta,
     });
 
-    return { status: respuesta.status, answer: respuesta.answer, queries };
+    return { status: respuesta.status, answer: respuesta.answer, queries, visual: validarVisual(respuesta.visual, queries) };
   } catch (error) {
     const code = error instanceof AppError ? error.code : ErrorCode.INTERNAL_ERROR;
     await auditar({
