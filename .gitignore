@@ -9,3 +9,21 @@ coverage/
 prisma/*.db
 # Datos HIS de la fase B (Atencion.txt, Paciente.txt...): nunca en git.
 data/
+
+# Material auxiliar de IA, agentes y skills.
+.agents/
+.claude/
+ai/
+skills/
+*.agent.md
+*.instructions.md
+*.prompt.md
+SKILL.md
+AGENTS.md
+CLAUDE.md
+
+# Documentacion, auditorias y planes de trabajo locales.
+docs/
+AUDITORIA.md
+*AUDITORIA*.md
+*auditoria*.md
