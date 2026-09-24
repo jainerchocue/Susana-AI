@@ -525,6 +525,7 @@ Susana-AI/
 ├── tests/
 ├── data/raw/                 ← extractos HIS (gitignored)
 └── scripts/agent-mock.mjs
+change
 ```
 
 ---
