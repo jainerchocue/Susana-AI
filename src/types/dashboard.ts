@@ -113,4 +113,6 @@ export interface KPI {
   period: string
   status: KPIStatus
   description?: string
+  /** true = no sigue el filtro de fecha global (ventana fija, p. ej. "últimas 24h" o "en este momento"). */
+  live?: boolean
 }

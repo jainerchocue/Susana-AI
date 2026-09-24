@@ -14,6 +14,8 @@ export interface KPICardProps {
   status: KPIStatus
   description?: string
   isLoading?: boolean
+  /** true = ventana fija (no sigue el filtro de fecha global) — se marca para que no parezca un filtro roto. */
+  live?: boolean
 }
 
 const STATUS_LABELS: Record<KPIStatus, string> = {
@@ -78,6 +80,7 @@ export function KPICard({
   status,
   description,
   isLoading = false,
+  live = false,
 }: KPICardProps) {
   if (isLoading) {
     return (
@@ -134,7 +137,16 @@ export function KPICard({
               {signedTrendValue && <span>{signedTrendValue}</span>}
             </span>
           )}
-          <span className="text-xs text-ink-500">{period}</span>
+          <span className="inline-flex items-center gap-1.5 text-xs text-ink-500">
+            {live && (
+              <span className="relative flex h-1.5 w-1.5 shrink-0" aria-hidden="true">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-400 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent-500" />
+              </span>
+            )}
+            {period}
+            {live && <span className="sr-only"> — no sigue el período seleccionado, siempre en vivo</span>}
+          </span>
         </div>
       )}
 

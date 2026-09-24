@@ -1,4 +1,4 @@
-import { format, startOfDay, startOfMonth, subMonths, subWeeks } from 'date-fns'
+import { format, parseISO, startOfDay, startOfMonth, subMonths, subWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 /** ISO local (yyyy-MM-dd) sin desfase de zona horaria, para los filtros desde/hasta. */
@@ -65,4 +65,17 @@ export function formatDateLabel(date: Date): string {
 /** Fecha larga con día de la semana, p. ej. "miércoles, 23 de septiembre de 2026". */
 export function formatLongDate(date: Date): string {
   return format(date, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })
+}
+
+/**
+ * Rótulo legible del período activo, p. ej. "23 sep 2026 — 24 sep 2026". Acepta
+ * tanto el filtro elegido por el usuario como (preferible) el `periodo` que el
+ * propio backend devuelve en la respuesta, para que el texto refleje exactamente
+ * el rango que se usó al calcular los datos, no lo que el filtro *pedía*.
+ */
+export function buildPeriodLabel(from: string | null | undefined, to: string | null | undefined): string {
+  if (from && to) return `${formatDateLabel(parseISO(from))} — ${formatDateLabel(parseISO(to))}`
+  if (from) return `Desde ${formatDateLabel(parseISO(from))}`
+  if (to) return `Hasta ${formatDateLabel(parseISO(to))}`
+  return 'Todo el período disponible'
 }

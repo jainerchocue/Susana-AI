@@ -1,7 +1,14 @@
 import type { AssistantQueryResult, ChatMessage } from '@/types'
 import { Card, CardBody, ErrorState, Spinner } from '@/components/ui'
 import { IconSparkles } from '@/components/ui/icons'
+import { AssistantInsightCard } from './AssistantInsightCard'
+import { AssistantPredictionCard } from './AssistantPredictionCard'
+import { buildAssistantInsight, extractPrediction } from '@/features/assistant/insights'
 import { formatNumber } from '@/utils/format'
+
+function isNumericCell(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
 
 function QueryResultView({ result, index }: { result: AssistantQueryResult; index: number }) {
   return (
@@ -27,8 +34,8 @@ function QueryResultView({ result, index }: { result: AssistantQueryResult; inde
             {result.rows.map((row, rowIndex) => (
               <tr key={`${index}-${rowIndex}`} className="border-t border-surface-100">
                 {result.columns.map((column) => (
-                  <td key={column} className="whitespace-nowrap px-3 py-2 text-ink-900">
-                    {row[column] ?? ''}
+                  <td key={column} className="whitespace-nowrap px-3 py-2 text-ink-900 tabular-nums">
+                    {isNumericCell(row[column]) ? formatNumber(row[column], 0) : (row[column] ?? '')}
                   </td>
                 ))}
               </tr>
@@ -71,10 +78,29 @@ function AssistantMessageContent({ message }: { message: ChatMessage }) {
   }
 
   const { answer } = message
+  // Solo la primera consulta define la cifra destacada — si el asistente ejecutó varias,
+  // las demás igual quedan disponibles abajo en sus propias tablas.
+  const insight = answer.status === 'ok' && answer.queries[0] ? buildAssistantInsight(answer.queries[0]) : null
+  const prediction = answer.status === 'ok' ? extractPrediction(answer.answer) : null
+  const hasInterpretation = Boolean(insight || prediction)
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{answer.answer}</p>
+      {insight && <AssistantInsightCard insight={insight} />}
+      {prediction && <AssistantPredictionCard prediction={prediction} />}
+
+      {hasInterpretation ? (
+        <details className="group">
+          <summary className="cursor-pointer list-none text-xs font-medium text-ink-500 hover:text-ink-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+            <span className="group-open:hidden">Ver respuesta completa</span>
+            <span className="hidden group-open:inline">Ocultar respuesta completa</span>
+          </summary>
+          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-ink-500">{answer.answer}</p>
+        </details>
+      ) : (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{answer.answer}</p>
+      )}
+
       {answer.queries.map((result, index) => (
         <QueryResultView key={index} result={result} index={index} />
       ))}

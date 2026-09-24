@@ -16,7 +16,7 @@ import { OccupancyTrendChart, WaitTimesChart } from '@/components/charts'
 import { AlertsList } from '@/components/alerts'
 import { Card, CardBody, CardHeader } from '@/components/ui'
 import { useAuth } from '@/features/auth/hooks/useAuth'
-import { formatLongDate } from '@/utils/date'
+import { buildPeriodLabel, formatLongDate } from '@/utils/date'
 
 const RECENT_ALERTS_PARAMS = { limit: 5 }
 
@@ -46,6 +46,8 @@ export default function DashboardPage() {
   })
 
   const kpis = summaryQuery.data ? buildDashboardKpis(summaryQuery.data) : []
+  const isRefreshing =
+    !summaryQuery.isLoading && (summaryQuery.isFetching || occupancyQuery.isFetching || waitTimesQuery.isFetching)
 
   return (
     <div className="flex flex-col gap-6">
@@ -59,7 +61,18 @@ export default function DashboardPage() {
             {formatLongDate(new Date())} · Ocupación, tiempos de espera y alertas en tiempo real.
           </p>
         </div>
-        <GlobalFilterBar />
+        <div className="flex flex-col items-end gap-1.5">
+          <GlobalFilterBar />
+          {isRefreshing && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-ink-500" role="status">
+              <span className="relative flex h-1.5 w-1.5 shrink-0" aria-hidden="true">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-400 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent-500" />
+              </span>
+              Actualizando con el nuevo período…
+            </span>
+          )}
+        </div>
       </header>
 
       <KPIGrid kpis={kpis} isLoading={summaryQuery.isLoading} />
@@ -71,6 +84,7 @@ export default function DashboardPage() {
           isError={occupancyQuery.isError}
           error={occupancyQuery.error}
           onRetry={occupancyQuery.refetch}
+          period={buildPeriodLabel(occupancyQuery.data?.periodo.desde, occupancyQuery.data?.periodo.hasta)}
         />
         <WaitTimesChart
           data={waitTimesQuery.data?.porNivel ?? []}
@@ -78,6 +92,7 @@ export default function DashboardPage() {
           isError={waitTimesQuery.isError}
           error={waitTimesQuery.error}
           onRetry={waitTimesQuery.refetch}
+          period={buildPeriodLabel(waitTimesQuery.data?.periodo.desde, waitTimesQuery.data?.periodo.hasta)}
         />
       </div>
 

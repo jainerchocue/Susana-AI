@@ -51,6 +51,7 @@ export function KPIGrid({ kpis, isLoading = false }: KPIGridProps) {
           period={kpi.period}
           status={kpi.status}
           description={kpi.description}
+          live={kpi.live}
         />
       ))}
     </div>

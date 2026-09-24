@@ -23,6 +23,7 @@ import {
   type SelectOption,
 } from '@/components/ui'
 import { IconAlertTriangle, IconBuilding, IconCalendar, IconCapsule } from '@/components/ui/icons'
+import { buildPeriodLabel } from '@/utils/date'
 import { getDisplayErrorMessage } from '@/utils/errors'
 import { formatDate, formatNumber, formatPercent } from '@/utils/format'
 
@@ -40,13 +41,6 @@ const LEVEL_COLORS: Record<number, string> = {
   5: BRAND.forest,
 }
 const levelColor = (level: unknown) => LEVEL_COLORS[Number(level)] ?? BRAND.indigo
-
-function buildPeriodLabel(from: string | null, to: string | null): string {
-  if (from && to) return `${formatDate(from)} — ${formatDate(to)}`
-  if (from) return `Desde ${formatDate(from)}`
-  if (to) return `Hasta ${formatDate(to)}`
-  return 'Todo el período disponible'
-}
 
 /* ───────── Piezas visuales ───────── */
 

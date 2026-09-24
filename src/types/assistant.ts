@@ -2,7 +2,8 @@ export type ChatRole = 'user' | 'assistant'
 
 export interface AssistantQueryMetric {
   agg: string
-  field: string
+  /** Ausente en agregaciones que no necesitan columna, p. ej. `count` sobre toda la fila. */
+  field?: string
 }
 
 export interface AssistantQueryFilter {
@@ -14,7 +15,7 @@ export interface AssistantQueryFilter {
 export interface AssistantQuerySpec {
   dataset: string
   metrics?: AssistantQueryMetric[]
-  groupBy?: Array<{ field: string }>
+  groupBy?: Array<{ field: string; grain?: 'day' | 'week' | 'month' | 'year' }>
   filters?: AssistantQueryFilter[]
   orderBy?: unknown[]
   limit?: number
