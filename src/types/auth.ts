@@ -44,3 +44,9 @@ export interface BetterAuthSignInResult {
 export interface MeResult extends AuthUser {
   permissions: Permission[]
 }
+
+/** PATCH /users/me — schema propio del usuario (sin `status`, mass-assignment). */
+export interface ProfileUpdateInput {
+  name?: string
+  image?: string | null
+}

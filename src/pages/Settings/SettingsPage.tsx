@@ -1,7 +1,9 @@
 import { useMemo, useState, type ComponentType, type SVGProps } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
 import { useAuthStore } from '@/app/store/authStore'
 import { toast } from '@/app/store/toastStore'
-import { Badge, Card, CardBody, CardHeader, EmptyState, Input, PageHeader, Tooltip, type BadgeTone } from '@/components/ui'
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Input, PageHeader, Tooltip, type BadgeTone } from '@/components/ui'
 import {
   IconBell,
   IconBuilding,
@@ -22,6 +24,13 @@ import {
   IconUser,
 } from '@/components/ui/icons'
 import { roleLabel } from '@/constants'
+import { useUpdateProfile, useChangePassword } from '@/features/auth/hooks/useAccountSettings'
+import {
+  changePasswordSchema,
+  profileUpdateSchema,
+  type ChangePasswordFormValues,
+  type ProfileUpdateFormValues,
+} from '@/schemas/account.schema'
 import { formatDate, formatRelativeTime } from '@/utils/format'
 
 const STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
@@ -126,6 +135,82 @@ function InfoRow({
         </div>
       </div>
     </div>
+  )
+}
+
+function ProfileEditCard({ currentName }: { currentName: string }) {
+  const { updateProfile, isUpdatingProfile } = useUpdateProfile()
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isDirty },
+  } = useForm<ProfileUpdateFormValues>({ resolver: zodResolver(profileUpdateSchema), values: { name: currentName } })
+
+  async function onSubmit(values: ProfileUpdateFormValues) {
+    await updateProfile(values)
+    reset(values)
+  }
+
+  return (
+    <Card>
+      <CardHeader title="Editar perfil" subtitle="Cambie el nombre con el que se le identifica en el sistema." />
+      <CardBody>
+        <form className="flex flex-wrap items-end gap-3" onSubmit={handleSubmit(onSubmit)}>
+          <Input label="Nombre completo" {...register('name')} error={errors.name?.message} className="w-64" />
+          <Button type="submit" isLoading={isUpdatingProfile} disabled={!isDirty}>
+            Guardar
+          </Button>
+        </form>
+      </CardBody>
+    </Card>
+  )
+}
+
+function ChangePasswordCard() {
+  const { changePassword, isChangingPassword } = useChangePassword()
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<ChangePasswordFormValues>({ resolver: zodResolver(changePasswordSchema) })
+
+  async function onSubmit(values: ChangePasswordFormValues) {
+    try {
+      await changePassword(values)
+      reset()
+    } catch {
+      // el hook ya mostró el toast de error — conservamos lo escrito para que el usuario corrija
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader title="Cambiar contraseña" subtitle="Mínimo 12 caracteres." />
+      <CardBody>
+        <form className="grid grid-cols-1 gap-3 sm:grid-cols-3" onSubmit={handleSubmit(onSubmit)}>
+          <Input
+            label="Contraseña actual"
+            type="password"
+            {...register('currentPassword')}
+            error={errors.currentPassword?.message}
+          />
+          <Input label="Nueva contraseña" type="password" {...register('newPassword')} error={errors.newPassword?.message} />
+          <Input
+            label="Confirmar contraseña"
+            type="password"
+            {...register('confirmPassword')}
+            error={errors.confirmPassword?.message}
+          />
+          <div className="sm:col-span-3">
+            <Button type="submit" isLoading={isChangingPassword}>
+              Actualizar contraseña
+            </Button>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   )
 }
 
@@ -314,6 +399,11 @@ export default function SettingsPage() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ProfileEditCard currentName={user.name} />
+        <ChangePasswordCard />
+      </div>
+
       <Card>
         <CardHeader
           title="Permisos asignados"
@@ -394,8 +484,7 @@ export default function SettingsPage() {
 
       <p className="flex items-center gap-1.5 text-xs text-ink-500">
         <IconLock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        Los roles y permisos son gestionados por el administrador del sistema desde el backend. Este módulo es de
-        solo lectura.
+        Los roles y permisos son gestionados por el administrador del sistema y se muestran aquí solo para consulta.
       </p>
     </div>
   )

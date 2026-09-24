@@ -29,14 +29,13 @@ const dateInputBase =
  * quita el rango, y volver a pulsar un acceso rápido activo también lo quita.
  */
 export function GlobalFilterBar() {
-  const { filters, setFilter } = useGlobalFilters()
+  const { filters, setFilter, setFilters } = useGlobalFilters()
 
   const isAllPeriod = filters.from === null && filters.to === null
   const activePreset = DATE_PRESETS.find((preset) => isPresetActive(preset, filters.from, filters.to))?.key
 
   const clearRange = () => {
-    setFilter('from', null)
-    setFilter('to', null)
+    setFilters({ from: null, to: null })
   }
 
   return (
@@ -73,8 +72,7 @@ export function GlobalFilterBar() {
                     return
                   }
                   const range = preset.range()
-                  setFilter('from', range.from)
-                  setFilter('to', range.to)
+                  setFilters({ from: range.from, to: range.to })
                 }}
                 className={cn(chipBase, isActive ? chipOn : chipOff)}
               >

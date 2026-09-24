@@ -5,6 +5,9 @@ import type { GlobalFilters } from '@/types'
 export interface UseGlobalFiltersResult {
   filters: GlobalFilters
   setFilter: (key: keyof GlobalFilters, value: string | null) => void
+  /** Aplica varias claves a la vez en una sola actualización de la URL — evita que dos
+   *  `setFilter` seguidos (p. ej. from+to de un preset) se pisen entre sí. */
+  setFilters: (partial: Partial<GlobalFilters>) => void
   resetFilters: () => void
 }
 
@@ -42,6 +45,23 @@ export function useGlobalFilters(): UseGlobalFiltersResult {
     [setSearchParams],
   )
 
+  const setFilters = useCallback(
+    (partial: Partial<GlobalFilters>) => {
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous)
+          for (const [key, value] of Object.entries(partial)) {
+            if (value === null || value === '') next.delete(key)
+            else next.set(key, value)
+          }
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
   const resetFilters = useCallback(() => {
     setSearchParams(
       (previous) => {
@@ -54,5 +74,5 @@ export function useGlobalFilters(): UseGlobalFiltersResult {
     )
   }, [setSearchParams])
 
-  return { filters, setFilter, resetFilters }
+  return { filters, setFilter, setFilters, resetFilters }
 }

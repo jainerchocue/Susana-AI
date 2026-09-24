@@ -21,6 +21,8 @@ interface AuthState {
   setSession: (payload: { user: AuthUser; permissions: Permission[]; accessToken: string | null }) => void
   /** Deja el token disponible para el interceptor de axios antes de tener user/permissions (p. ej. justo tras sign-in, antes de llamar /users/me). */
   setAccessToken: (accessToken: string) => void
+  /** Actualiza user/permissions tras un PATCH /users/me — nunca toca accessToken (a diferencia de setSession). */
+  updateUser: (payload: { user: AuthUser; permissions: Permission[] }) => void
   setStatus: (status: AuthState['status']) => void
   clearSession: () => void
   hasPermission: (permission: Permission) => boolean
@@ -40,6 +42,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storeAccessToken(accessToken)
     set({ accessToken })
   },
+  updateUser: ({ user, permissions }) => set({ user, permissions }),
   setStatus: (status) => set({ status }),
   clearSession: () => {
     clearStoredAccessToken()
