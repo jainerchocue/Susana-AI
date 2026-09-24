@@ -130,7 +130,9 @@ def _metric_keys(row: dict[str, Any]) -> list[str]:
             k.startswith("count")
             or k.startswith("sum_")
             or k.startswith("avg_")
-            or k in {"quantity", "value", "wait_minutes", "stay_hours", "total", "camas_ocupadas"}
+            or k.startswith("min_")
+            or k.startswith("max_")
+            or k in {"quantity", "value", "wait_minutes", "stay_hours", "total", "camas_ocupadas", "min_value"}
         ):
             keys.append(k)
     return keys
