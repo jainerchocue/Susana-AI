@@ -3,10 +3,10 @@ import { authenticate } from '../../core/middleware/authenticate';
 import { requirePermissions } from '../../core/middleware/authorize';
 import { validate } from '../../core/middleware/validate';
 import { noStore } from '../../core/middleware/security';
-import { paginated } from '../../core/http/api-response';
 import { PERMISSIONS } from '../../core/rbac/permissions';
-import { listAuditQuerySchema, type ListAuditQuery } from './audit.schemas';
-import * as service from './audit.service';
+import { idParamSchema } from '../../core/http/schemas';
+import { listAuditQuerySchema } from './audit.schemas';
+import * as controller from './audit.controller';
 
 const router = Router();
 
@@ -15,9 +15,18 @@ router.use(noStore, authenticate);
 
 router.get(
   '/',
-  requirePermissions(PERMISSIONS.audit.read),
+  // Orden de CLAUDE.md §5: validate ANTES que requirePermissions (estaba
+  // invertido; se corrige de paso al tocar este archivo para TC5).
   validate({ query: listAuditQuerySchema }),
-  async (req, res) => paginated(res, await service.list(req.query as unknown as ListAuditQuery)),
+  requirePermissions(PERMISSIONS.audit.read),
+  auditController.list,
+);
+
+router.get(
+  '/:id',
+  validate({ params: idParamSchema }),
+  requirePermissions(PERMISSIONS.audit.read),
+  auditController.getById,
 );
 
 export default router;

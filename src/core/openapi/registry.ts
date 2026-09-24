@@ -78,6 +78,12 @@ import {
 import { idParamSchema } from '../http/schemas';
 import { hisIdParamSchema } from '../../modules/his/his.schemas';
 import {
+  fileNameQuerySchema,
+  importJobResponseSchema,
+  listImportsQuerySchema,
+  tablaParamSchema,
+} from '../../modules/imports/imports.schemas';
+import {
   createProcedureSchema,
   listProceduresQuerySchema,
   procedureCodeParamSchema,
@@ -1094,6 +1100,74 @@ export const registroOpenApi: RutaDocumentada[] = [
     params: hisIdParamSchema,
     status: 204,
     errors: [404],
+  },
+
+  // ─── imports (TC1) ─────────────────────────────────────────────────────────
+  {
+    method: 'post',
+    path: '/imports/{table}',
+    tag: 'imports',
+    summary: 'Subir un archivo CSV/HIS para importar una tabla',
+    description:
+      'Requiere data:import. Cuerpo `text/csv` (el archivo en crudo), `?fileName=` opcional. ' +
+      'Separador detectado por la cabecera: `|` nativo sin comillas, o `,`/`;` con comillas RFC 4180. ' +
+      'Se guarda en un temporal, se crea el ImportJob y responde 202: el proceso sigue en segundo ' +
+      'plano (consultar con GET /imports/{id}). 409 si ya hay otro trabajo en curso. 413 si el ' +
+      'archivo supera IMPORT_MAX_MB.',
+    auth: true,
+    params: tablaParamSchema,
+    query: fileNameQuerySchema,
+    contentType: 'text/csv',
+    status: 202,
+    response: importJobResponseSchema,
+    errors: [409, 413, 415],
+  },
+  {
+    method: 'get',
+    path: '/imports',
+    tag: 'imports',
+    summary: 'Listar trabajos de importacion',
+    description: 'Requiere data:import. Cursor UUID (keyset por id) y filtros por status y table.',
+    auth: true,
+    query: listImportsQuerySchema,
+    response: importJobResponseSchema,
+    paginated: true,
+  },
+  {
+    method: 'get',
+    path: '/imports/templates/{table}',
+    tag: 'imports',
+    summary: 'Plantilla CSV de una tabla (cabecera + fila de ejemplo sintetica)',
+    description: 'Requiere data:import. La cabecera es EXACTA a la que exige la importacion de esa tabla.',
+    auth: true,
+    params: tablaParamSchema,
+    produces: 'text/csv',
+  },
+  {
+    method: 'get',
+    path: '/imports/{id}',
+    tag: 'imports',
+    summary: 'Ver un trabajo de importacion',
+    description:
+      'Requiere data:import. Incluye los contadores y los primeros 50 errores (linea + motivo, ' +
+      'nunca datos de paciente).',
+    auth: true,
+    params: idParamSchema,
+    response: importJobResponseSchema,
+    errors: [404],
+  },
+  {
+    method: 'delete',
+    path: '/imports/{id}',
+    tag: 'imports',
+    summary: 'Borrar el registro de un trabajo de importacion',
+    description:
+      'Requiere data:import. Borra solo el METADATO de la subida, nunca los datos ya importados. ' +
+      '409 si el trabajo esta PENDING o RUNNING.',
+    auth: true,
+    params: idParamSchema,
+    status: 204,
+    errors: [404, 409],
   },
 
   // ─── health ────────────────────────────────────────────────────────────────

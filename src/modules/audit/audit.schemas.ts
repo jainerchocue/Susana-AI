@@ -15,3 +15,19 @@ export const listAuditQuerySchema = z
   .strict();
 
 export type ListAuditQuery = z.infer<typeof listAuditQuerySchema>;
+
+// ─── Esquema de RESPUESTA (documentacion OpenAPI, TC5) ─────────────────────
+// Forma exacta de `PublicAuditEntry` (audit.service.ts). `metadata` es JSON
+// arbitrario (detalle estructurado de cada accion): sin forma fija que documentar.
+export const auditEntryResponseSchema = z.object({
+  id: uuidSchema,
+  action: z.string(),
+  actorId: uuidSchema.nullable(),
+  actorEmail: z.string().nullable(),
+  targetType: z.string().nullable(),
+  targetId: uuidSchema.nullable(),
+  metadata: z.unknown(),
+  ip: z.string().nullable(),
+  requestId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});

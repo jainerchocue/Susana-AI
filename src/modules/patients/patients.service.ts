@@ -95,7 +95,10 @@ export async function getById(id: number): Promise<PublicPatient> {
   const patient = await prisma.patient.findUnique({ where: { id } });
   if (!patient) throw AppError.notFound('Paciente');
 
-  await auditar({ action: AUDIT.accesoSensible, targetType: 'patient', targetId: String(id) });
+  // `auditLog.targetId` es UUID en BD (@db.Uuid): un id numerico del HIS no
+  // encaja ahi, asi que el id real viaja SOLO en `metadata` (igual en el
+  // resto de los audits de este modulo y de admissions/triages).
+  await auditar({ action: AUDIT.accesoSensible, targetType: 'patient', metadata: { id } });
 
   const referencia = await fechaReferencia();
   return toPublicPatient(patient, referencia);
@@ -111,7 +114,6 @@ export async function create(input: CreatePatientInput, actor: Actor, meta: Requ
       actorId: actor.id,
       action: AUDIT.registroCreado,
       targetType: 'patient',
-      targetId: String(input.id),
       metadata: { id: input.id, campos: Object.keys(input) },
       ...meta,
     });

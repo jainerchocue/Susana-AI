@@ -40,3 +40,25 @@ export const listImportsQuerySchema = z
   .strict();
 
 export type ListImportsQuery = z.infer<typeof listImportsQuerySchema>;
+
+/** Forma publica de `ImportJob` (OpenAPI + contrato de respuesta de todas las rutas de `/imports`). */
+export const importJobResponseSchema = z.object({
+  id: uuidSchema,
+  table: z.enum(TABLAS_IMPORTABLES),
+  status: z.enum(ESTADOS_IMPORT_JOB),
+  fileName: z.string().nullable(),
+  fileBytes: z.number().int(),
+  delimiter: z.string().nullable(),
+  processed: z.number().int(),
+  inserted: z.number().int(),
+  duplicates: z.number().int(),
+  skipped: z.number().int(),
+  invalid: z.number().int(),
+  warnings: z.number().int(),
+  errors: z.array(z.object({ linea: z.number().int(), motivo: z.string() })).nullable(),
+  message: z.string().nullable(),
+  createdBy: uuidSchema.nullable(),
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+});

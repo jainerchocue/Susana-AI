@@ -20,8 +20,10 @@ export interface ResultadoEvaluacionAlertas {
 }
 
 export async function evaluarAlertas(): Promise<ResultadoEvaluacionAlertas> {
-  const puntos = await construirMetricas();
-  const candidatos = evaluarReglas(puntos);
+  // Umbrales y activacion vienen de `AlertRule` (BD, TC5), no de `env` a
+  // pelo: `leerReglas()` cae a los valores de env fila a fila si alguna falta.
+  const [puntos, reglas] = await Promise.all([construirMetricas(), leerReglas()]);
+  const candidatos = evaluarReglas(puntos, reglas.umbrales, reglas.desactivadas);
   const resultado = await sincronizar(candidatos, METRICAS_EVALUADAS);
   return { ...resultado, evaluadoEn: new Date().toISOString() };
 }
