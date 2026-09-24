@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
-import unicodedata
 
-# Zona del HIS (Colombia)
 _TZ = timezone(timedelta(hours=-5))
 
 
@@ -30,17 +30,26 @@ def _hace_dias_iso(dias: int) -> str:
     return inicio.isoformat()
 
 
+def _umbral_dias(texto: str, default: int = 5) -> int:
+    m = re.search(r"menos de\s+(\d+)", texto)
+    if m:
+        return max(1, int(m.group(1)))
+    m = re.search(r"(\d+)\s*dias", texto)
+    if m:
+        return max(1, int(m.group(1)))
+    return default
+
+
 def consulta_serie_temporal(
     question: str,
     catalog: list[dict[str, Any]],
     max_rows: int = 60,
 ) -> dict[str, Any] | None:
-    """Serie diaria solo para anticipar (preguntas de proyección)."""
     disponibles = _datasets(catalog)
     texto = _norm(question)
     limit = min(max(7, max_rows), 60)
 
-    if ("medicamento" in texto or "inventario" in texto or "stock" in texto) and "medications" in disponibles:
+    if any(k in texto for k in ("medicamento", "inventario", "stock", "farmac")):
         return None
 
     if ("espera" in texto or "triage" in texto) and "admissions" in disponibles:
@@ -65,21 +74,39 @@ def consulta_serie_temporal(
             "limit": limit,
             "filters": [],
         }
-
     return None
 
 
+def consulta_uci_alternativa(question: str, catalog: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any] | None:
+    """Si unit no tiene UCI, probar por subunidad (común en el HIS)."""
+    if "admissions" not in _datasets(catalog):
+        return None
+    texto = _norm(question)
+    if "uci" not in texto:
+        return None
+    filters: list[dict[str, Any]] = [
+        {"field": "subunit", "op": "contains", "value": "UCI"},
+    ]
+    if "hoy" in texto:
+        filters.append({"field": "admitted_at", "op": "gte", "value": _inicio_hoy_iso()})
+    return {
+        "dataset": "admissions",
+        "metrics": [{"agg": "count"}],
+        "groupBy": [{"field": "subunit"}],
+        "filters": filters,
+        "orderBy": [{"ref": "metric:0", "dir": "desc"}],
+        "limit": min(max(1, max_rows), 20),
+    }
+
+
 def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any] | None:
-    """
-    Planificador: propone DSL alineado a la pregunta (con filtros cuando aplica).
-    Solo datasets presentes en el catálogo del usuario.
-    """
     disponibles = _datasets(catalog)
     texto = _norm(question)
     limit = min(max(1, max_rows), 100)
 
     quiere_serie = any(
-        k in texto for k in ("predic", "tendenc", "proyecc", "anticip", "pronostic", "forecast", "evolucion")
+        k in texto
+        for k in ("predic", "tendenc", "proyecc", "anticip", "pronostic", "forecast", "evolucion")
     )
     if quiere_serie and "admissions" in disponibles:
         return {
@@ -91,11 +118,12 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "filters": [],
         }
 
-    # Inventario bajo / días de stock → alertas LOW_STOCK (no consumo de dispensación)
+    # Medicamentos con pocos días de inventario → alertas LOW_STOCK
     pide_inventario = any(
-        k in texto for k in ("inventario", "dias de", "días de", "bajo stock", "sin stock", "menos de")
+        k in texto for k in ("inventario", "dias de", "bajo stock", "sin stock", "menos de")
     ) and any(k in texto for k in ("medic", "farmac", "stock", "invent"))
     if pide_inventario and "alerts" in disponibles:
+        umbral = _umbral_dias(texto, 5)
         return {
             "dataset": "alerts",
             "metrics": [{"agg": "min", "field": "value"}],
@@ -103,12 +131,15 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "filters": [
                 {"field": "type", "op": "eq", "value": "LOW_STOCK"},
                 {"field": "status", "op": "in", "value": ["OPEN", "ACKNOWLEDGED"]},
+                {"field": "value", "op": "lte", "value": umbral},
             ],
             "orderBy": [{"ref": "metric:0", "dir": "asc"}],
             "limit": min(limit, 20),
         }
 
-    if ("medicamento" in texto or "inventario" in texto or "farmacia" in texto or "stock" in texto) and "medications" in disponibles:
+    if (
+        "medicamento" in texto or "inventario" in texto or "farmacia" in texto or "stock" in texto
+    ) and "medications" in disponibles:
         return {
             "dataset": "medications",
             "metrics": [{"agg": "sum", "field": "quantity"}],
@@ -118,7 +149,6 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "filters": [],
         }
 
-    # Espera / triage / urgencias (antes que ocupación genérica)
     if ("espera" in texto or "triage" in texto) and "admissions" in disponibles:
         filters: list[dict[str, Any]] = []
         if "urgenc" in texto:
@@ -127,12 +157,15 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             filters.append({"field": "admitted_at", "op": "gte", "value": _hace_dias_iso(7)})
         elif "hoy" in texto:
             filters.append({"field": "admitted_at", "op": "gte", "value": _inicio_hoy_iso()})
+        # Promedio general (sin partir solo por triage) + detalle por triage en 2ª lectura
+        # Una sola query con triage da el detalle; el brief calcula el promedio global.
         return {
             "dataset": "admissions",
             "metrics": [{"agg": "avg", "field": "wait_minutes"}],
             "groupBy": [{"field": "triage_level"}],
             "filters": filters,
-            "limit": min(limit, 20),
+            "orderBy": [{"ref": "triage_level", "dir": "asc"}],
+            "limit": min(limit, 10),
         }
 
     if ("cirug" in texto or "quirurg" in texto) and "surgeries" in disponibles:
@@ -144,20 +177,19 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "filters": [],
         }
 
-    # UCI / camas / ocupación
     if ("uci" in texto or "cama" in texto or "ocupac" in texto) and "admissions" in disponibles:
         filters = []
-        if "uci" in texto:
-            filters.append({"field": "unit", "op": "contains", "value": "UCI"})
         if "hoy" in texto:
             filters.append({"field": "admitted_at", "op": "gte", "value": _inicio_hoy_iso()})
-        # Si pide UCI: contar ingresos en esa unidad (proxy operativo de carga UCI)
         if "uci" in texto:
+            # Primero por unidad; ask_service reintenta por subunidad si viene vacío
             return {
                 "dataset": "admissions",
                 "metrics": [{"agg": "count"}],
-                "filters": filters,
-                "limit": min(limit, 5),
+                "groupBy": [{"field": "unit"}],
+                "filters": filters + [{"field": "unit", "op": "contains", "value": "UCI"}],
+                "orderBy": [{"ref": "metric:0", "dir": "desc"}],
+                "limit": min(limit, 20),
             }
         return {
             "dataset": "admissions",
@@ -168,7 +200,7 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "limit": min(limit, 20),
         }
 
-    if ("alerta" in texto) and "alerts" in disponibles:
+    if "alerta" in texto and "alerts" in disponibles:
         return {
             "dataset": "alerts",
             "metrics": [{"agg": "count"}],
@@ -177,8 +209,7 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
             "filters": [],
         }
 
-    # "servicio con más ingresos / pacientes"
-    if ("servicio" in texto or "ingres" in texto) and "admissions" in disponibles:
+    if ("servicio" in texto or "ingres" in texto or "paciente" in texto) and "admissions" in disponibles:
         filters = []
         if "mes" in texto:
             filters.append({"field": "admitted_at", "op": "gte", "value": _hace_dias_iso(30)})
@@ -204,7 +235,6 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
     if disponibles:
         ds = sorted(disponibles)[0]
         return {"dataset": ds, "metrics": [{"agg": "count"}], "limit": min(limit, 20), "filters": []}
-
     return None
 
 
@@ -216,7 +246,7 @@ def intent_desde_pregunta(question: str) -> str:
         return "WAIT_TIME"
     if "uci" in t or "cama" in t or "ocupac" in t:
         return "OCCUPANCY"
-    if "demanda" in t or "ingres" in t or "servicio" in t:
+    if "demanda" in t or "ingres" in t or "servicio" in t or "paciente" in t:
         return "DEMAND"
     if "cirug" in t:
         return "SURGERY"

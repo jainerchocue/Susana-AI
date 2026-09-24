@@ -20,6 +20,7 @@ from app.agent.recommender import Recommender
 from app.agent.root_cause import root_cause_hint
 from app.bridge.dsl_planner import (
     consulta_serie_temporal,
+    consulta_uci_alternativa,
     elegir_consulta,
     intent_desde_pregunta,
 )
@@ -32,37 +33,36 @@ logger = logging.getLogger(__name__)
 _MAX_ANSWER = 4000
 _LLM_BUDGET_S = min(14.0, max(8.0, float(settings.llm_timeout_seconds or 14.0)))
 
-_SYSTEM_DATOS = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
-Consultas datos autorizados del HIS a través del backend del hospital y respondes al equipo de dirección y operaciones.
+_SYSTEM_DATOS = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
+Respondes a dirección y jefaturas con datos autorizados del HIS (vía backend).
 
-TONO: 100% lenguaje natural, claro, completo y profesional. Como un analista senior en junta de operaciones.
-Nunca suenes a sistema, a JSON, a bot ni a reporte técnico.
+TONO: español profesional, claro, completo. Como un analista senior en junta.
+Prosa fluida en 2–3 párrafos (90–150 palabras). Nunca suenes a bot ni a lista técnica.
 
-PROHIBIDO en la respuesta (no lo menciones nunca):
-Random Forest, ML, modelo, algoritmo, periodos históricos, MAE, lag, holdout, SQL, DSL, dataset, count_all, API, ticket.
+OBLIGATORIO:
+1. Contesta DIRECTAMENTE la pregunta del usuario en la primera frase.
+2. Usa SOLO cifras y nombres del JSON "hechos". No inventes.
+3. Si hay "nota" o limitaciones, intégralas con naturalidad (sin decir "limitación:").
+4. Si hay anticipacion, solo menciónala si aporta a la pregunta.
+5. Una recomendación operativa breve al final, si aporta.
 
-REGLAS:
-1. Contesta la pregunta de forma completa en 2–3 párrafos cortos (aprox. 100–160 palabras).
-2. Usa ÚNICAMENTE cifras y nombres del JSON "hechos". No inventes datos.
-3. Si hay prediccion_ml, explícala como "anticipación" o "proyección operativa" en prosa natural.
-4. Sin PII ni consejo clínico (diagnóstico, tratamiento, dosis).
-5. Cierra con una sugerencia operativa prudente solo si aporta.
+PROHIBIDO decir: Random Forest, ML, algoritmo, dataset, count_all, SQL, DSL, API, ticket, periodos históricos, MAE, lag.
+Sin consejo clínico ni PII.
 """
 
-_SYSTEM_CHAT = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
-Puedes proponer consultas al backend del hospital para obtener resultados del HIS y explicarlos con claridad.
+_SYSTEM_CHAT = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
 
-TONO: natural, profesional y completo. Nunca técnico de software ni de machine learning.
+TONO: natural, profesional y cercano (gestión hospitalaria, no clínico).
 
 Puedes ayudar con: ocupación y camas, tiempos de espera, medicamentos/farmacia,
 cirugías, alertas operativas y proyecciones de demanda.
 
 REGLAS:
-1. Responde siempre en lenguaje natural.
-2. Si saludan o preguntan en qué ayudas: preséntate y ofrece 2–4 temas concretos del hospital.
-3. Sin inventar cifras del HIS si no hay consulta de datos.
-4. Sin consejo clínico, sin PII, sin SQL ni nombres de algoritmos.
-5. Máximo ~110 palabras. Invita a una pregunta operativa concreta.
+1. Lenguaje natural completo.
+2. Si saludan: preséntate y ofrece 2–4 temas del hospital.
+3. Sin inventar cifras del HIS.
+4. Sin consejo clínico, PII ni jerga de software.
+5. Máximo ~110 palabras.
 """
 
 
@@ -145,6 +145,7 @@ def _etiqueta_intent(intent: str) -> str:
 
 
 def _plantilla(brief: AnswerBrief) -> str:
+    """Fallback profesional si OpenRouter no responde."""
     if brief.clarify:
         return brief.clarify[:_MAX_ANSWER]
     if brief.empty:
@@ -152,38 +153,28 @@ def _plantilla(brief: AnswerBrief) -> str:
             brief.empty_reason
             or "Con la información disponible no puedo responder esa consulta con seguridad."
         ]
-        if brief.forecast:
-            parts.append(brief.forecast)
         if brief.recommendations:
             parts.append(brief.recommendations[0])
+        if brief.limitations:
+            parts.append(brief.limitations[0])
         return " ".join(parts)[:_MAX_ANSWER]
 
-    proy = _es_proyeccion(brief.question)
     partes: list[str] = []
-    if proy and brief.forecast:
-        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
-        if brief.ranking:
-            partes.append(
-                "Como contexto del corte actual, las unidades con más carga son: "
-                + "; ".join(brief.ranking[:3])
-                + "."
-            )
-        if brief.recommendations:
-            tip = brief.recommendations[0]
-            partes.append(tip if tip.endswith(".") else tip + ".")
-        return " ".join(partes)[:_MAX_ANSWER]
-
     if brief.headline:
-        partes.append(brief.headline)
-    if brief.ranking and len(brief.ranking) > 1 and not proy:
-        partes.append("En el detalle destacan: " + "; ".join(brief.ranking[:3]) + ".")
-    if brief.root_cause:
-        partes.append(brief.root_cause)
-    if brief.forecast:
+        partes.append(brief.headline if brief.headline.endswith(".") else brief.headline + ".")
+    if brief.ranking:
+        sample = brief.ranking[0] or ""
+        if "triage" in sample.lower() or "días" in sample or "dias" in sample.lower():
+            partes.append("Detalle: " + "; ".join(brief.ranking[:5]) + ".")
+        elif len(brief.ranking) > 1:
+            partes.append("También destacan: " + "; ".join(brief.ranking[:3]) + ".")
+    if brief.forecast and _es_proyeccion(brief.question):
         partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
     if brief.recommendations:
         tip = brief.recommendations[0]
         partes.append(tip if tip.endswith(".") else tip + ".")
+    if brief.limitations:
+        partes.append(brief.limitations[0])
     return " ".join(p for p in partes if p).strip()[:_MAX_ANSWER]
 
 
@@ -412,6 +403,19 @@ async def handle_ask(
     rows = resultado.get("rows") or []
     if not isinstance(rows, list):
         rows = []
+
+    # UCI: si unit no devolvió filas, reintentar por subunidad
+    if (not rows) and "uci" in _norm(question):
+        alt = consulta_uci_alternativa(question, catalog, max_rows=max_rows)
+        if alt:
+            extra = await ejecutar_en_node(ticket, alt)
+            if extra and (extra.get("rows") or []):
+                resultado = extra
+                query = alt
+                rows = extra.get("rows") or []
+                if not isinstance(rows, list):
+                    rows = []
+
     row_count = int(resultado.get("rowCount") or len(rows))
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import unicodedata
 
 from pydantic import BaseModel, Field
 
@@ -179,8 +180,8 @@ def build_answer_brief(
             row_count=0,
             empty=True,
             empty_reason=(
-                f"No hay registros en {ds_label} para esa consulta "
-                "con los filtros y permisos actuales."
+                "No encontré registros para esa consulta con los filtros y permisos actuales. "
+                "Puede tratarse de un corte sin actividad o de un nombre de unidad distinto en el HIS."
             ),
             forecast=forecast,
             forecast_method=forecast_method,
@@ -189,47 +190,116 @@ def build_answer_brief(
         )
 
     clean = [r for r in rows if isinstance(r, dict)]
+    if not clean:
+        return AnswerBrief(
+            question=question,
+            intent=intent,
+            dataset=dataset,
+            dataset_label=ds_label,
+            row_count=0,
+            empty=True,
+            empty_reason=(
+                f"No encontré registros en {ds_label} para esa consulta "
+                "con los filtros y permisos actuales."
+            ),
+            forecast=forecast,
+            forecast_method=forecast_method,
+            recommendations=recommendations or [],
+            limitations=limitations or [],
+        )
+
     first = clean[0]
     dims = _dim_keys(first)
     metrics = _metric_keys(first)
+    q_low = question.lower()
+    q_norm = "".join(
+        c for c in unicodedata.normalize("NFD", q_low) if unicodedata.category(c) != "Mn"
+    )
 
-    # Ordenar por métrica desc para que "mayor" coincida con el ranking
+    # Orden: inventario ASC (menos días primero); resto DESC
     if metrics and len(clean) > 1:
         mkey = metrics[0]
+        reverse = not (
+            dataset == "alerts"
+            or "inventario" in q_norm
+            or mkey in {"min_value", "value", "avg_wait_minutes"}
+        )
+        # wait: keep triage order later; inventario: asc
 
         def _sort_key(fila: dict[str, Any]) -> float:
             n = safe_number(fila.get(mkey))
-            return float(n) if n is not None else -1.0
+            return float(n) if n is not None else (-1.0 if reverse else 1e18)
 
-        clean = sorted(clean, key=_sort_key, reverse=True)
+        if "inventario" in q_norm or dataset == "alerts":
+            clean = sorted(clean, key=_sort_key, reverse=False)
+        elif "espera" not in q_norm:
+            clean = sorted(clean, key=_sort_key, reverse=True)
         first = clean[0]
 
     points: list[FactPoint] = []
     ranking: list[str] = []
     headline: str | None = None
 
-    q_low = question.lower()
-    pregunta_proyeccion = any(
-        k in q_low
-        for k in (
-            "evolucion",
-            "evolución",
-            "evolucionar",
-            "próxim",
-            "proxim",
-            "predic",
-            "anticip",
-            "futur",
-            "tendencia",
-            "cómo irá",
-            "como ira",
-            "cómo va a",
-            "como va a",
-        )
-    )
+    # ── Headlines profesionales según la pregunta ──
+    if "espera" in q_norm and metrics:
+        mkey = metrics[0] if metrics else "avg_wait_minutes"
+        vals = [safe_number(r.get(mkey)) for r in clean]
+        vals_f = [float(v) for v in vals if v is not None]
+        if vals_f:
+            promedio = sum(vals_f) / len(vals_f)
+            headline = (
+                f"El tiempo de espera promedio en el corte consultado es de "
+                f"{promedio:.1f} minutos."
+            )
+            if dims:
+                dim = dims[0]
+                for fila in clean[:5]:
+                    name = fila.get(dim)
+                    mv = fila.get(mkey)
+                    if name is not None and mv is not None:
+                        ranking.append(f"triage {name}: {_fmt_val(mv)} min")
 
-    # Ranking / breakdown (varias filas con dimensión)
-    if len(clean) > 1 and dims:
+    elif ("inventario" in q_norm or dataset == "alerts") and metrics:
+        mkey = "min_value" if any("min_value" in r for r in clean) else (metrics[0] if metrics else "value")
+        dim = "scope_id" if any("scope_id" in r for r in clean) else (dims[0] if dims else None)
+        for fila in clean[:8]:
+            code = fila.get(dim) if dim else None
+            dias = fila.get(mkey)
+            if code is not None and dias is not None:
+                ranking.append(f"{code}: {_fmt_val(dias)} días")
+        if ranking:
+            headline = (
+                f"Hay {len(ranking)} medicamento(s)/código(s) con inventario bajo "
+                f"en alertas activas. El más crítico es «{clean[0].get(dim)}» "
+                f"con {_fmt_val(clean[0].get(mkey))} días estimados."
+            )
+        else:
+            headline = "No hay alertas de inventario bajo activas en este momento."
+
+    elif "uci" in q_norm and metrics:
+        mkey = metrics[0]
+        total = 0.0
+        for fila in clean:
+            n = safe_number(fila.get(mkey))
+            if n is not None:
+                total += float(n)
+            if dims:
+                dim = dims[0]
+                name = fila.get(dim)
+                if name is not None and n is not None:
+                    ranking.append(f"{name}: {_fmt_val(n)}")
+        periodo = "hoy" if "hoy" in q_norm else "en el corte consultado"
+        headline = (
+            f"En UCI, {periodo}, se registran {int(total)} ingresos "
+            f"(actividad asociada a unidades/subunidades de cuidado intensivo)."
+        )
+        lims_extra = (
+            "El HIS no expone un contador de camas físicas; "
+            "la cifra corresponde a ingresos/actividad en UCI."
+        )
+        limitations = list(limitations or []) + [lims_extra]
+
+    elif len(clean) > 1 and dims:
         dim = dims[0]
         metric = metrics[0] if metrics else None
         for fila in clean[:5]:
@@ -240,41 +310,26 @@ def build_answer_brief(
                 ranking.append(f"{name}: {_fmt_val(fila.get(metric))}")
             else:
                 ranking.append(str(name))
-        if ranking:
-            top_name = clean[0].get(dim)
-            top_metric = _fmt_val(clean[0].get(metric)) if metric else None
-            if pregunta_proyeccion and forecast:
-                headline = (
-                    f"Anticipación de {ds_label} para los próximos días"
-                    f" (hoy destaca {_label(dim)} «{top_name}»"
-                    + (f" con {top_metric}" if top_metric else "")
-                    + ")."
-                )
-            elif top_metric is not None:
-                headline = (
-                    f"En {_label(dim)}, el mayor volumen corresponde a «{top_name}» "
-                    f"con {_label(metric)} de {top_metric}."
-                )
-            else:
-                headline = f"En {_label(dim)} destaca «{top_name}»."
+        top_name = clean[0].get(dim)
+        top_metric = _fmt_val(clean[0].get(metric)) if metric else None
+        if top_metric is not None:
+            headline = (
+                f"La mayor actividad está en «{top_name}» "
+                f"({_label(metric)} {top_metric})."
+            )
+        else:
+            headline = f"Destaca «{top_name}»."
     else:
-        # Una fila agregada o detalle
         for k in list(dims)[:3] + list(metrics)[:3]:
             if k in first and first[k] is not None:
                 points.append(FactPoint(label=_label(k), value=_fmt_val(first[k])))
         if metrics and first.get(metrics[0]) is not None:
             m = metrics[0]
-            headline = (
-                f"En {ds_label}, {_label(m)} asciende a {_fmt_val(first.get(m))}."
-            )
+            headline = f"{_label(m).capitalize()}: {_fmt_val(first.get(m))}."
         elif points:
-            headline = (
-                f"Según {ds_label}: "
-                + "; ".join(f"{p.label} {p.value}" for p in points[:3])
-                + "."
-            )
+            headline = "; ".join(f"{p.label} {p.value}" for p in points[:3]) + "."
         else:
-            headline = f"Hay resultados disponibles en {ds_label}."
+            headline = f"Hay resultados en {ds_label}."
 
     lims = list(limitations or [])
     if forecast:
@@ -296,5 +351,5 @@ def build_answer_brief(
         forecast_method=forecast_method,
         recommendations=list(recommendations or [])[:3],
         root_cause=root_cause,
-        limitations=lims[:3],
+        limitations=lims[:4],
     )
