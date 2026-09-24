@@ -2,7 +2,7 @@ import { env } from '../../config/env';
 import { logger } from '../../core/logger';
 import { construirMetricas, METRICAS_EVALUADAS } from './alerts.metrics';
 import { evaluarReglas } from './alerts.engine';
-import { sincronizar } from './alerts.service';
+import { leerReglas, sincronizar } from './alerts.service';
 
 /**
  * Job de evaluacion del motor de alertas (T11): mismo patron que
