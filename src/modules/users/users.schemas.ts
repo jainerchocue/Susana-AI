@@ -77,3 +77,19 @@ export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
+// ─── Esquemas de RESPUESTA (documentacion OpenAPI, TC0) ────────────────────
+// Forma exacta de `PublicUser` (users.mapper.ts): el `data` de un exito, nunca
+// la entidad Prisma cruda (el hash de contraseña vive en Account, aparte).
+export const publicUserResponseSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string(),
+  image: z.string().nullable(),
+  status: z.nativeEnum(UserStatus),
+  emailVerified: z.boolean(),
+  twoFactorEnabled: z.boolean(),
+  roles: z.array(z.string()),
+  permissions: z.array(z.string()),
+  createdAt: z.string().datetime(),
+});

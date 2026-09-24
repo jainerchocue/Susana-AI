@@ -286,6 +286,11 @@ model Alert {
   value     Float
   threshold Float
   message   String
+  /// engine | manual. El motor NUNCA resuelve ni pisa las que crea un humano
+  /// por API (CRUD, TC0/TC5): sin esta marca no podria distinguirlas.
+  source    String @default("engine")
+  /// Quien creo la alerta manual. Null en las del motor.
+  createdBy String? @db.Uuid
 
   firstSeenAt DateTime @default(now())
   lastSeenAt  DateTime @default(now())
@@ -304,6 +309,63 @@ model Alert {
   @@index([type, scopeId, status])
   @@index([scope, status])
   @@map("alerts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reglas de alertas (umbrales editables por API, TC5) e importaciones CSV (TC1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Umbrales del motor de alertas, editables por `PATCH /alerts/rules/:type`.
+/// Las 5 filas (una por ALERT_TYPES) las crea el seed con los valores de
+/// env.ALERT_* SOLO si no existen: nunca pisa lo editado por API.
+model AlertRule {
+  /// Uno de ALERT_TYPES. Los tipos los define el motor: no se crean ni se
+  /// borran por API, solo se activan/desactivan y se cambian sus umbrales.
+  type              String   @id
+  enabled           Boolean  @default(true)
+  warningThreshold  Float
+  /// Null en las reglas de un solo nivel (DEMAND_SPIKE, SURGERY_CANCELLATIONS).
+  criticalThreshold Float?
+  updatedBy         String?  @db.Uuid
+  updatedAt         DateTime @updatedAt
+
+  @@map("alert_rules")
+}
+
+enum ImportStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Trabajo de importacion CSV por API (TC1). El archivo en si nunca se
+/// guarda: se procesa en un temporal (`fs.mkdtemp`) que se borra siempre.
+model ImportJob {
+  id         String       @id @default(uuid()) @db.Uuid
+  /// Nombre de tabla de la API (`patients`, `admissions`...), no el archivo HIS.
+  table      String
+  status     ImportStatus @default(PENDING)
+  fileName   String?
+  fileBytes  Int
+  delimiter  String?
+  processed  Int          @default(0)
+  inserted   Int          @default(0)
+  duplicates Int          @default(0)
+  skipped    Int          @default(0)
+  invalid    Int          @default(0)
+  warnings   Int          @default(0)
+  /// Primeros 50 errores (linea + motivo), nunca datos de paciente.
+  errors     Json?
+  message    String?
+  createdBy  String?      @db.Uuid
+  createdAt  DateTime     @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("import_jobs")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

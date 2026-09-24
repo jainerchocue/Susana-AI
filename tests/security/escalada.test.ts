@@ -6,6 +6,7 @@ import {
   getApp,
   limpiar,
   login,
+  PASSWORD,
   permisosDe,
   prisma,
   rolesDe,
@@ -438,6 +439,15 @@ describe('RBAC · prevencion de escalada de privilegios', () => {
     });
 
     it('suspender a alguien le corta el acceso de inmediato', async () => {
+      // `users.service#update` borra las sesiones del usuario al ponerle un
+      // status != ACTIVE. No es redundante con la revalidacion de
+      // `authenticate.ts` (que ya corta el acceso a NUESTRA API en cada
+      // peticion sin esto): las rutas de Better Auth (`/auth/get-session`,
+      // `/auth/change-password`, `/auth/update-user`, `/auth/two-factor/*`)
+      // son la propia libreria y NO pasan por `authenticate`, asi que no
+      // conocen nuestro `status`. Sin borrar la sesion, una cuenta suspendida
+      // seguiria pudiendo cambiar su contraseña o desactivar su 2FA con la
+      // sesion vieja. `authenticate` queda como defensa en profundidad.
       const usuario = await crearUsuarioNormal();
       const supers = await prisma.user.findFirstOrThrow({
         where: { roles: { some: { role: { name: 'SUPER_ADMIN' } } }, deletedAt: null },
@@ -450,8 +460,25 @@ describe('RBAC · prevencion de escalada de privilegios', () => {
         .send({ status: 'SUSPENDED' });
       expect(res.status).toBe(200);
 
+      // Nuestra API: con la sesion borrada, `getSession` ya no la resuelve y
+      // `authenticate` responde 401 (nunca llega a comprobar `status`, que
+      // daria el 403 ACCOUNT_SUSPENDED mas especifico si la sesion siguiera viva).
       const despues = await api().get('/api/v1/users/me').set('Authorization', `Bearer ${usuario.token}`);
       expect(despues.status).toBe(401);
+
+      // Rutas de Better Auth: sin el borrado de la sesion, seguirian
+      // aceptando el token de una cuenta ya suspendida.
+      const sesionVieja = await api()
+        .get('/api/v1/auth/get-session')
+        .set('Authorization', `Bearer ${usuario.token}`);
+      expect(sesionVieja.status).toBe(200);
+      expect(sesionVieja.body).toBeNull();
+
+      const cambioClave = await api()
+        .post('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${usuario.token}`)
+        .send({ currentPassword: PASSWORD, newPassword: 'OtraClave123!Segura' });
+      expect(cambioClave.status).toBe(401);
     });
   });
 });

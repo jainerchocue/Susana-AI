@@ -55,6 +55,16 @@ export async function fechaReferencia(): Promise<Date> {
 }
 
 /**
+ * Invalida la cache de `fechaReferencia`. La llaman las escrituras que pueden
+ * mover el `max(admittedAt)`: crear/editar/borrar un ingreso (CRUD, TC2) y la
+ * importacion CSV (TC1). Sin esto, un ingreso nuevo con fecha mas reciente
+ * quedaria invisible para el calculo del periodo hasta 5 minutos despues.
+ */
+export function invalidarFechaReferencia(): void {
+  cache = null;
+}
+
+/**
  * Resuelve un periodo completo a partir de lo que el cliente mando (parcial o
  * vacio). `hasta` por defecto es la fecha de referencia; `desde` por defecto
  * son `diasPorDefecto` dias antes de `hasta`.

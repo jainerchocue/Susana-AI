@@ -2,11 +2,17 @@ import type { Prisma } from '@prisma/client';
 import { AlertStatus } from '@prisma/client';
 import { prisma } from '../../core/db/prisma';
 import { AppError } from '../../core/http/errors';
+import { logger } from '../../core/logger';
 import { AUDIT, auditarEnTx, type RequestMeta } from '../../core/audit/audit';
-import type { AlertCandidate, MetricKey } from './alerts.engine';
-import type { AlertScope } from './alerts.constants';
-import { toPublicAlert, type PublicAlert } from './alerts.mapper';
-import type { ListAlertsQuery, UpdateAlertInput } from './alerts.schemas';
+import { UMBRALES, type AlertCandidate, type MetricKey, type Umbrales } from './alerts.engine';
+import {
+  ALERT_TYPES,
+  UMBRALES_ALERTA_POR_DEFECTO,
+  type AlertScope,
+  type AlertType,
+} from './alerts.constants';
+import { toPublicAlert, toPublicAlertRule, type PublicAlert, type PublicAlertRule } from './alerts.mapper';
+import type { CreateManualAlertInput, ListAlertsQuery, UpdateAlertInput, UpdateRuleInput } from './alerts.schemas';
 
 /** Identifica una alerta activa: mismo tipo y mismo recurso del HIS. */
 function claveDe(type: string, scopeId: string | null): string {
@@ -14,6 +20,13 @@ function claveDe(type: string, scopeId: string | null): string {
 }
 
 const ABIERTAS: AlertStatus[] = [AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED];
+
+/** Origen de una alerta generada por el motor (por oposicion a 'manual', TC5). */
+const FUENTE_MOTOR = 'engine';
+const FUENTE_MANUAL = 'manual';
+/** Metrica de una alerta manual: nunca coincide con un `MetricKey` real, asi
+ *  que el filtro `metric: { in: evaluadas }` de `sincronizar()` nunca la toca. */
+const METRICA_MANUAL = 'manual';
 
 /**
  * Sincroniza el estado de las alertas con lo que el motor de reglas acaba de
@@ -26,8 +39,16 @@ const ABIERTAS: AlertStatus[] = [AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED];
  * pasada y cuya clave ya no aparezca entre los candidatos se marca RESOLVED:
  * el problema que la origino ya no se detecta.
  *
- * ponytail: sin index unico parcial sobre (type, scopeId) para OPEN/ACKNOWLEDGED
- * (ver prisma/schema.prisma). Basta con que un solo evaluador corra a la vez.
+ * `source: FUENTE_MOTOR` en AMBAS consultas (TC5): sin el, una alerta MANUAL
+ * con el mismo (type, scopeId) que un candidato real seria "actualizada" con
+ * los datos del motor (perdiendo el mensaje del operador) o "resuelta" sin
+ * que nadie la tocara. El invariante ("el motor nunca resuelve ni pisa las
+ * manuales") se cumple ademas por construccion en la resolucion: una manual
+ * siempre tiene `metric: METRICA_MANUAL`, que nunca esta en `evaluadas`.
+ *
+ * ponytail: sin index unico parcial sobre (type, scopeId, source) para
+ * OPEN/ACKNOWLEDGED (ver prisma/schema.prisma). Basta con que un solo
+ * evaluador corra a la vez.
  */
 export async function sincronizar(
   candidatos: AlertCandidate[],
@@ -40,7 +61,12 @@ export async function sincronizar(
 
     for (const candidato of candidatos) {
       const existente = await tx.alert.findFirst({
-        where: { type: candidato.type, scopeId: candidato.scopeId, status: { in: ABIERTAS } },
+        where: {
+          type: candidato.type,
+          scopeId: candidato.scopeId,
+          status: { in: ABIERTAS },
+          source: FUENTE_MOTOR,
+        },
         select: { id: true },
       });
 
@@ -67,6 +93,7 @@ export async function sincronizar(
             value: candidato.value,
             threshold: candidato.threshold,
             message: candidato.message,
+            source: FUENTE_MOTOR,
           },
         });
         creadas += 1;
@@ -74,7 +101,7 @@ export async function sincronizar(
     }
 
     const abiertas = await tx.alert.findMany({
-      where: { metric: { in: evaluadas }, status: { in: ABIERTAS } },
+      where: { metric: { in: evaluadas }, status: { in: ABIERTAS }, source: FUENTE_MOTOR },
       select: { id: true, type: true, scopeId: true },
     });
     const aResolver = abiertas.filter((a) => !clavesCandidatos.has(claveDe(a.type, a.scopeId)));

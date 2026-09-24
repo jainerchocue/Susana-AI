@@ -1,9 +1,20 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../core/db/prisma';
 import { env } from '../../config/env';
+import { AppError } from '../../core/http/errors';
 import { AUDIT, auditarEnTx, type RequestMeta } from '../../core/audit/audit';
 import { HIS_ZONA_HORARIA, fechaReferencia, resolverPeriodo } from '../his/his.periodo';
-import type { ConsumptionQuery, ListMedicationsQuery } from './medications.schemas';
+import { recalcularDerivados } from '../his/his.derivados';
+import type {
+  ConsumptionQuery,
+  CreateDispenseInput,
+  CreateMedicationInput,
+  ListDispensesQuery,
+  ListMedicationsQuery,
+  ListStockQuery,
+  UpdateDispenseInput,
+  UpdateMedicationInput,
+} from './medications.schemas';
 
 /**
  * Medicamentos e insumos (T9). B0: el HIS no trae stock, asi que todo lo que
@@ -357,5 +368,391 @@ export async function diasInventario(
     const avg = consumo.get(stock.code) ?? 0;
     const dias = avg > 0 ? redondear(stock.quantity / avg, 1) : ('insufficient_data' as const);
     return { code: stock.code, name: nombrePorCodigo.get(stock.code) ?? stock.code, daysOfInventory: dias };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /medications/stock (TC4): lo ya registrado por FARMACIA, con su riesgo
+// calculado. A diferencia de `critical()` (solo CRITICAL/LOW), aqui va TODO lo
+// que tiene stock. El filtro `risk` depende de un campo CALCULADO (no de una
+// columna): se trae la tabla completa (como `critical()`, unas pocas centenas
+// de filas como mucho) y se pagina en memoria tras filtrar, no al reves -- lo
+// contrario daria un `total`/paginas que no cuadran con el filtro.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface StockListItem {
+  code: string;
+  name: string;
+  kind: string;
+  quantity: number;
+  updatedAt: string;
+  updatedBy: string | null;
+  avgDailyConsumption: number | 'insufficient_data';
+  daysOfInventory: number | 'insufficient_data';
+  risk: Riesgo;
+}
+
+export interface ListStockResult {
+  items: StockListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function listStock(query: ListStockQuery): Promise<ListStockResult> {
+  const stocks = await prisma.medicationStock.findMany({ orderBy: { code: 'asc' } });
+  const codes = stocks.map((s) => s.code);
+  const referencia = await fechaReferencia();
+  const [consumo, medicamentos] = await Promise.all([
+    consumoMedioDiario(codes, referencia),
+    prisma.medication.findMany({ where: { code: { in: codes } } }),
+  ]);
+  const medPorCodigo = new Map(medicamentos.map((m) => [m.code, m]));
+
+  const todos: StockListItem[] = stocks.map((stock) => {
+    const avg = consumo.get(stock.code) ?? 0;
+    const dias = avg > 0 ? redondear(stock.quantity / avg, 1) : ('insufficient_data' as const);
+    const medicamento = medPorCodigo.get(stock.code);
+    return {
+      code: stock.code,
+      name: medicamento?.name ?? stock.code,
+      kind: medicamento?.kind ?? 'desconocido',
+      quantity: stock.quantity,
+      updatedAt: stock.updatedAt.toISOString(),
+      updatedBy: stock.updatedBy,
+      avgDailyConsumption: redondear(avg),
+      daysOfInventory: dias,
+      risk: evaluarRiesgo(dias),
+    };
+  });
+
+  const filtrados = query.risk ? todos.filter((i) => i.risk === query.risk) : todos;
+  const inicio = (query.page - 1) * query.limit;
+
+  return { items: filtrados.slice(inicio, inicio + query.limit), total: filtrados.length, page: query.page, limit: query.limit };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /medications/:code (TC4): catalogo + stock + consumo de 30 dias + dias
+// de inventario + riesgo. Reusa `consumoMedioDiario`/`ultimaDispensacion`
+// (arriba): misma ventana y la misma logica que `list()`, sin duplicarla.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MedicationDetail {
+  code: string;
+  name: string;
+  kind: string;
+  stock: number | null;
+  stockUpdatedAt: string | null;
+  /** Cantidad dispensada en los ultimos 30 dias hasta la fecha de referencia. */
+  consumption30d: number;
+  avgDailyConsumption: number | 'insufficient_data';
+  daysOfInventory: number | 'insufficient_data';
+  risk: Riesgo;
+  lastDispensedAt: string | null;
+}
+
+export async function getByCode(code: string): Promise<MedicationDetail> {
+  const medicamento = await prisma.medication.findUnique({ where: { code } });
+  if (!medicamento) throw AppError.notFound('Medicamento');
+
+  const referencia = await fechaReferencia();
+  const [stock, consumoMapa, ultimaMapa] = await Promise.all([
+    prisma.medicationStock.findUnique({ where: { code } }),
+    consumoMedioDiario([code], referencia),
+    ultimaDispensacion([code]),
+  ]);
+
+  // Sin stock registrado, ni el consumo medio importa (T9): no hay contra que dividir.
+  let avg: number | 'insufficient_data' = 'insufficient_data';
+  let dias: number | 'insufficient_data' = 'insufficient_data';
+  const consumoDiarioExacto = consumoMapa.get(code) ?? 0;
+  if (stock) {
+    avg = redondear(consumoDiarioExacto);
+    dias = consumoDiarioExacto > 0 ? redondear(stock.quantity / consumoDiarioExacto, 1) : 'insufficient_data';
+  }
+
+  return {
+    code: medicamento.code,
+    name: medicamento.name,
+    kind: medicamento.kind,
+    stock: stock?.quantity ?? null,
+    stockUpdatedAt: stock?.updatedAt.toISOString() ?? null,
+    // Reconstruye el entero original (consumoMedioDiario ya lo dividio entre
+    // 30): redondeo defensivo por el punto flotante de la division/producto.
+    consumption30d: Math.round(consumoDiarioExacto * DIAS_CONSUMO_MEDIO),
+    avgDailyConsumption: avg,
+    daysOfInventory: dias,
+    risk: evaluarRiesgo(dias),
+    lastDispensedAt: ultimaMapa.get(code)?.toISOString() ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalogo: crear/editar/borrar (medications:manage, TC4).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MedicationCatalogEntry {
+  code: string;
+  name: string;
+  kind: string;
+}
+
+async function getMedicationOrThrow(code: string) {
+  const medicamento = await prisma.medication.findUnique({ where: { code } });
+  if (!medicamento) throw AppError.notFound('Medicamento');
+  return medicamento;
+}
+
+export async function createMedication(
+  input: CreateMedicationInput,
+  actorId: string,
+  meta: RequestMeta,
+): Promise<MedicationCatalogEntry> {
+  const existente = await prisma.medication.findUnique({ where: { code: input.code } });
+  if (existente) throw AppError.conflict(`Ya existe un medicamento con el codigo ${input.code}.`);
+
+  const creado = await prisma.$transaction(async (tx) => {
+    const fila = await tx.medication.create({ data: input });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroCreado,
+      actorId,
+      targetType: 'medication',
+      metadata: { code: fila.code, name: fila.name, kind: fila.kind },
+      ...meta,
+    });
+    return fila;
+  });
+
+  return { code: creado.code, name: creado.name, kind: creado.kind };
+}
+
+export async function updateMedication(
+  code: string,
+  input: UpdateMedicationInput,
+  actorId: string,
+  meta: RequestMeta,
+): Promise<MedicationCatalogEntry> {
+  await getMedicationOrThrow(code);
+
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const fila = await tx.medication.update({ where: { code }, data: input });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroActualizado,
+      actorId,
+      targetType: 'medication',
+      metadata: { code, cambios: Object.keys(input) },
+      ...meta,
+    });
+    return fila;
+  });
+
+  return { code: actualizado.code, name: actualizado.name, kind: actualizado.kind };
+}
+
+/**
+ * Borra un medicamento/insumo del catalogo. 409 si tiene dispensaciones o
+ * stock: `MedicationDispense.code` SI tiene FK a `Medication` (fallaria solo en
+ * la BD, con un P2003 generico), pero `MedicationStock.code` NO la tiene a
+ * proposito (B0: FARMACIA puede registrar stock de un codigo sin dispensar
+ * todavia) -- sin este chequeo explicito, borrar el medicamento dejaria el
+ * stock huerfano sin que la BD se quejara.
+ */
+export async function removeMedication(code: string, actorId: string, meta: RequestMeta): Promise<void> {
+  await getMedicationOrThrow(code);
+
+  const [dispensaciones, stock] = await Promise.all([
+    prisma.medicationDispense.count({ where: { code } }),
+    prisma.medicationStock.findUnique({ where: { code } }),
+  ]);
+
+  const bloqueos: string[] = [];
+  if (dispensaciones > 0) bloqueos.push(`${dispensaciones} dispensacion(es)`);
+  if (stock) bloqueos.push('un registro de stock');
+  if (bloqueos.length > 0) {
+    throw AppError.conflict(`No se puede borrar "${code}": tiene ${bloqueos.join(' y ')}. Borralos primero.`);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.medication.delete({ where: { code } });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroBorrado,
+      actorId,
+      targetType: 'medication',
+      metadata: { code },
+      ...meta,
+    });
+  });
+}
+
+/** DELETE /medications/:code/stock (medications:manage, TC4). */
+export async function removeStock(code: string, actorId: string, meta: RequestMeta): Promise<void> {
+  const existente = await prisma.medicationStock.findUnique({ where: { code } });
+  if (!existente) throw AppError.notFound('Registro de stock');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.medicationStock.delete({ where: { code } });
+    // targetId es @db.Uuid: `code` no lo es, asi que viaja en `metadata` (mismo patron que `updateStock`).
+    await auditarEnTx(tx, {
+      action: AUDIT.stockBorrado,
+      actorId,
+      targetType: 'medication_stock',
+      metadata: { code, from: existente.quantity },
+      ...meta,
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dispensaciones: CRUD completo (/medications/dispenses[/:id], TC4). Escriben
+// con data:manage; una dispensacion recalcula los derivados de SU ingreso
+// (`recalcularDerivados` con filtro, nunca los ~18.000 restantes).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DispenseItem {
+  id: number;
+  admissionId: number;
+  code: string;
+  quantity: number;
+  dispensedAt: string;
+  area: string;
+  specialty: string;
+}
+
+export interface ListDispensesResult {
+  items: DispenseItem[];
+  limit: number;
+  nextCursor: number | null;
+  hasNext: boolean;
+}
+
+interface FilaDispensacion {
+  id: number;
+  admissionId: number;
+  code: string;
+  quantity: number;
+  dispensedAt: Date;
+  area: string;
+  specialty: string;
+}
+
+function aDispenseItem(fila: FilaDispensacion): DispenseItem {
+  return {
+    id: fila.id,
+    admissionId: fila.admissionId,
+    code: fila.code,
+    quantity: fila.quantity,
+    dispensedAt: fila.dispensedAt.toISOString(),
+    area: fila.area,
+    specialty: fila.specialty,
+  };
+}
+
+export async function listDispenses(query: ListDispensesQuery): Promise<ListDispensesResult> {
+  const where: Prisma.MedicationDispenseWhereInput = {};
+  if (query.admissionId) where.admissionId = query.admissionId;
+  if (query.code) where.code = query.code;
+  if (query.area) where.area = query.area;
+  if (query.specialty) where.specialty = query.specialty;
+  if (query.desde || query.hasta) {
+    where.dispensedAt = {
+      ...(query.desde ? { gte: query.desde } : {}),
+      ...(query.hasta ? { lte: query.hasta } : {}),
+    };
+  }
+
+  // take + 1 para saber si hay siguiente sin contar la tabla entera (mismo patron que users.service#list).
+  const filas = await prisma.medicationDispense.findMany({
+    where,
+    orderBy: { id: 'asc' },
+    take: query.limit + 1,
+    ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+  });
+
+  const hasNext = filas.length > query.limit;
+  const pagina = hasNext ? filas.slice(0, query.limit) : filas;
+
+  return {
+    items: pagina.map(aDispenseItem),
+    limit: query.limit,
+    nextCursor: hasNext ? (pagina[pagina.length - 1]?.id ?? null) : null,
+    hasNext,
+  };
+}
+
+async function getDispenseOrThrow(id: number): Promise<FilaDispensacion> {
+  const fila = await prisma.medicationDispense.findUnique({ where: { id } });
+  if (!fila) throw AppError.notFound('Dispensacion');
+  return fila;
+}
+
+export async function getDispense(id: number): Promise<DispenseItem> {
+  return aDispenseItem(await getDispenseOrThrow(id));
+}
+
+export async function createDispense(
+  input: CreateDispenseInput,
+  actorId: string,
+  meta: RequestMeta,
+): Promise<DispenseItem> {
+  const existente = await prisma.medicationDispense.findUnique({ where: { id: input.id } });
+  if (existente) throw AppError.conflict(`Ya existe una dispensacion con el id ${input.id}.`);
+
+  const creado = await prisma.$transaction(async (tx) => {
+    const fila = await tx.medicationDispense.create({ data: input });
+    // Puede mover `lastActivityAt`/`stayHours` del ingreso: recalcula SOLO ese ingreso.
+    await recalcularDerivados(tx, { admissionIds: [fila.admissionId] });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroCreado,
+      actorId,
+      targetType: 'medication_dispense',
+      metadata: { id: fila.id, admissionId: fila.admissionId, code: fila.code, quantity: fila.quantity },
+      ...meta,
+    });
+    return fila;
+  });
+
+  return aDispenseItem(creado);
+}
+
+export async function updateDispense(
+  id: number,
+  input: UpdateDispenseInput,
+  actorId: string,
+  meta: RequestMeta,
+): Promise<DispenseItem> {
+  const anterior = await getDispenseOrThrow(id);
+
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const fila = await tx.medicationDispense.update({ where: { id }, data: input });
+    // Si cambio de ingreso, los DOS (el viejo y el nuevo) pueden tener un
+    // `lastActivityAt` distinto tras el movimiento; con `Set` se dedup si no cambio.
+    await recalcularDerivados(tx, { admissionIds: [...new Set([anterior.admissionId, fila.admissionId])] });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroActualizado,
+      actorId,
+      targetType: 'medication_dispense',
+      metadata: { id, cambios: Object.keys(input) },
+      ...meta,
+    });
+    return fila;
+  });
+
+  return aDispenseItem(actualizado);
+}
+
+export async function removeDispense(id: number, actorId: string, meta: RequestMeta): Promise<void> {
+  const existente = await getDispenseOrThrow(id);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.medicationDispense.delete({ where: { id } });
+    await recalcularDerivados(tx, { admissionIds: [existente.admissionId] });
+    await auditarEnTx(tx, {
+      action: AUDIT.registroBorrado,
+      actorId,
+      targetType: 'medication_dispense',
+      metadata: { id, admissionId: existente.admissionId, code: existente.code },
+      ...meta,
+    });
   });
 }

@@ -27,7 +27,12 @@ export async function volumenPorAreaEspecialidad(desde: Date, hasta: Date): Prom
     FROM his_service_records
     WHERE "providedAt" >= ${desde}::timestamptz AND "providedAt" <= ${hasta}::timestamptz
     GROUP BY area, specialty
-    ORDER BY quantity DESC
+    -- Desempate por area/specialty: un ORDER BY solo por quantity no es
+    -- determinista entre ejecuciones cuando hay empates (verificado en
+    -- E2E: /analytics/services y /analytics/services/export, dos llamadas
+    -- HTTP separadas sobre el mismo periodo, devolvian filas en distinto
+    -- orden). Sin desempate, tampoco se puede prometer un CSV reproducible.
+    ORDER BY quantity DESC, area, specialty
   `;
 }
 
@@ -45,7 +50,9 @@ export async function topProcedimientos(desde: Date, hasta: Date, limite = 10): 
     LEFT JOIN his_procedures p ON p.code = sr.code
     WHERE sr."providedAt" >= ${desde}::timestamptz AND sr."providedAt" <= ${hasta}::timestamptz
     GROUP BY sr.code, p.name
-    ORDER BY quantity DESC
+    -- Desempate deterministico (ver el comentario de volumenPorAreaEspecialidad):
+    -- con LIMIT, un empate sin desempatar tambien puede cambiar QUE filas entran.
+    ORDER BY quantity DESC, sr.code
     LIMIT ${limite}
   `;
 }
@@ -107,7 +114,8 @@ export async function distribucionTriagePorClasificacion(
     FROM his_triages
     WHERE "triagedAt" >= ${desde}::timestamptz AND "triagedAt" <= ${hasta}::timestamptz
     GROUP BY classification
-    ORDER BY n DESC
+    -- Desempate deterministico (ver el comentario de volumenPorAreaEspecialidad).
+    ORDER BY n DESC, classification
     LIMIT ${limite}
   `;
 }

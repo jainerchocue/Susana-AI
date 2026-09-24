@@ -146,8 +146,8 @@ describe('Plantillas de correo', () => {
 });
 
 describe('OpenAPI', () => {
-  it('se genera desde los schemas de Zod sin romperse', () => {
-    const spec = construirOpenApi() as { openapi: string; paths: Record<string, unknown> };
+  it('se genera desde los schemas de Zod sin romperse', async () => {
+    const spec = (await construirOpenApi()) as { openapi: string; paths: Record<string, unknown> };
     expect(spec.openapi).toBe('3.1.0');
     // 12 rutas unicas: varios metodos comparten path y se agrupan en una.
     expect(Object.keys(spec.paths).length).toBeGreaterThanOrEqual(12);
@@ -155,16 +155,23 @@ describe('OpenAPI', () => {
     expect(spec.paths['/api/v1/audit']).toBeDefined();
   });
 
-  it('NO documenta a mano las rutas de Better Auth', () => {
-    // Las sirve la libreria y las documenta su plugin openAPI. Copiarlas aqui
-    // garantizaria que el contrato miente el dia que la libreria cambie.
-    const spec = construirOpenApi() as { paths: Record<string, unknown> };
-    const deAuth = Object.keys(spec.paths).filter((p) => p.includes('/auth/'));
-    expect(deAuth).toHaveLength(0);
+  it('fusiona (no copia a mano) las rutas de Better Auth bajo {API_PREFIX}/auth', async () => {
+    // TC0: `auth.api.generateOpenAPISchema()` se llama en tiempo de ejecucion
+    // y sus rutas se re-prefijan aqui; si la libreria cambia de endpoints, el
+    // contrato cambia solo con ella, nunca queda una copia a mano desincronizada.
+    const spec = (await construirOpenApi()) as {
+      paths: Record<string, unknown>;
+      components: { securitySchemes: Record<string, unknown> };
+    };
+    expect(spec.paths['/api/v1/auth/sign-in/email']).toBeDefined();
+    expect(spec.paths['/api/v1/auth/sign-up/email']).toBeDefined();
+    expect(spec.paths['/api/v1/auth/get-session']).toBeDefined();
+    expect(spec.components.securitySchemes.bearerAuth).toBeDefined();
+    expect(spec.components.securitySchemes.cookieAuth).toBeDefined();
   });
 
-  it('incluye /alerts y /assistant/query (T3/T4, ya montados)', () => {
-    const spec = construirOpenApi() as { paths: Record<string, unknown> };
+  it('incluye /alerts y /assistant/query (T3/T4, ya montados)', async () => {
+    const spec = (await construirOpenApi()) as { paths: Record<string, unknown> };
     expect(spec.paths['/api/v1/alerts']).toBeDefined();
     expect(spec.paths['/api/v1/alerts/{id}']).toBeDefined();
     expect(spec.paths['/api/v1/assistant/query']).toBeDefined();
@@ -190,15 +197,15 @@ describe('OpenAPI', () => {
     ['post', '/api/v1/alerts/evaluate'], // T11
   ];
 
-  it.each(RUTAS_HIS_Y_ALERTAS)('incluye %s %s (T8/T9/T11)', (metodo, path) => {
-    const spec = construirOpenApi() as { paths: Record<string, Record<string, unknown>> };
+  it.each(RUTAS_HIS_Y_ALERTAS)('incluye %s %s (T8/T9/T11)', async (metodo, path) => {
+    const spec = (await construirOpenApi()) as { paths: Record<string, Record<string, unknown>> };
     expect(spec.paths[path]?.[metodo]).toBeDefined();
   });
 
-  it('NO documenta la API interna del agente: no es publica', () => {
+  it('NO documenta la API interna del agente: no es publica', async () => {
     // /internal/agent vive en el segundo puerto (internal-app.ts) y nunca pasa
     // por el autoload del publico: no debe aparecer en el contrato publico.
-    const spec = construirOpenApi() as { paths: Record<string, unknown> };
+    const spec = (await construirOpenApi()) as { paths: Record<string, unknown> };
     const deInterno = Object.keys(spec.paths).filter((p) => p.includes('/internal'));
     expect(deInterno).toHaveLength(0);
   });

@@ -445,7 +445,7 @@ describe('T13 - autenticacion, sesiones, 2FA y CSRF', () => {
   });
 
   describe('cuenta suspendida y borrado logico', () => {
-    it('suspender corta la sesion abierta (403 ACCOUNT_SUSPENDED) y bloquea un login nuevo; reactivar la restaura', async () => {
+    it('suspender corta la sesion abierta (401: la sesion queda revocada) y bloquea un login nuevo; reactivar la restaura', async () => {
       const admin = await iniciarSesionAdmin();
       const { id, email } = await crearUsuarioPropio(admin, 'suspender');
 
@@ -458,9 +458,14 @@ describe('T13 - autenticacion, sesiones, 2FA y CSRF', () => {
       const suspender = await admin.patch(`${PREFIJO}/users/${id}`, { status: 'SUSPENDED' });
       expect(suspender.status).toBe(200);
 
+      // `users.service#update` borra las sesiones del usuario al suspenderlo
+      // (ver el comentario en el servicio: lo exigen las rutas de Better Auth,
+      // que no pasan por `authenticate` y no conocen nuestro `status`). Con la
+      // sesion ya borrada, `getSession` no la resuelve y la respuesta es un
+      // 401 generico: nunca llega a `authenticate` a comprobar `status`, que
+      // es lo que daria el 403 ACCOUNT_SUSPENDED mas especifico.
       const trasSuspender = await sesion.get(`${PREFIJO}/users/me`);
-      expect(trasSuspender.status).toBe(403);
-      expect(comoTexto(comoRegistro(comoRegistro(trasSuspender.body).error).code)).toBe('ACCOUNT_SUSPENDED');
+      expect(trasSuspender.status).toBe(401);
 
       const loginSuspendido = await new Sesion(BASE).login(email, PASSWORD_E2E);
       expect(loginSuspendido.status).toBe(401);
