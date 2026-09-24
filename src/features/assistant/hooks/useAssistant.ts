@@ -3,15 +3,22 @@ import type { ChatMessage } from '@/types'
 import { assistantApi } from '@/services/api'
 import { getDisplayErrorMessage } from '@/utils/errors'
 
+export interface SuggestedQuestion {
+  question: string
+  /** Formulada para que el backend responda con un bloque "Predicción ML (...)" — ver extractPrediction. */
+  isPrediction?: boolean
+}
+
 /**
  * No existe /assistant/suggestions en el backend (ver api.md): estas son
  * sugerencias fijas del frontend, no datos que vengan del servidor.
  */
-export const SUGGESTED_QUESTIONS = [
-  '¿Cuál es la ocupación general del hospital?',
-  '¿Qué medicamentos tienen menos días de inventario?',
-  '¿Cuál es la espera por nivel de triage?',
-  '¿Qué unidad tiene mayor cambio de demanda esta semana?',
+export const SUGGESTED_QUESTIONS: SuggestedQuestion[] = [
+  { question: '¿Cuál es la ocupación general del hospital?' },
+  { question: '¿Qué medicamentos tienen menos días de inventario?' },
+  { question: '¿Cuál es la espera por nivel de triage?' },
+  { question: '¿Qué unidad tiene mayor cambio de demanda esta semana?' },
+  { question: '¿Cómo evolucionará la ocupación de camas los próximos días?', isPrediction: true },
 ]
 
 export function useAssistant() {
