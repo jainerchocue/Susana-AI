@@ -31,7 +31,8 @@ from app.llm.client import get_llm_client
 logger = logging.getLogger(__name__)
 
 _MAX_ANSWER = 4000
-_LLM_BUDGET_S = min(14.0, max(8.0, float(settings.llm_timeout_seconds or 14.0)))
+# Presupuesto corto pero suficiente para gpt-6-luna-pro (reasoning).
+_LLM_BUDGET_S = min(18.0, max(8.0, float(settings.llm_timeout_seconds or 16.0)))
 
 _SYSTEM_DATOS = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
 Respondes a dirección y jefaturas con datos autorizados del HIS (vía backend).
