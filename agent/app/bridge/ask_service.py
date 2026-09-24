@@ -20,6 +20,7 @@ from app.agent.recommender import Recommender
 from app.agent.root_cause import root_cause_hint
 from app.bridge.dsl_planner import (
     consulta_serie_temporal,
+    consulta_uci_alternativa,
     elegir_consulta,
     intent_desde_pregunta,
 )
@@ -30,39 +31,34 @@ from app.llm.client import get_llm_client
 logger = logging.getLogger(__name__)
 
 _MAX_ANSWER = 4000
-_LLM_BUDGET_S = min(14.0, max(8.0, float(settings.llm_timeout_seconds or 14.0)))
+# Presupuesto corto pero suficiente para gpt-6-luna-pro (reasoning).
+_LLM_BUDGET_S = min(18.0, max(8.0, float(settings.llm_timeout_seconds or 16.0)))
 
-_SYSTEM_DATOS = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
-Consultas datos autorizados del HIS a través del backend del hospital y respondes al equipo de dirección y operaciones.
+_SYSTEM_DATOS = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
+Hablas con dirección y operaciones usando datos reales del HIS (ya consultados).
 
-TONO: 100% lenguaje natural, claro, completo y profesional. Como un analista senior en junta de operaciones.
-Nunca suenes a sistema, a JSON, a bot ni a reporte técnico.
-
-PROHIBIDO en la respuesta (no lo menciones nunca):
-Random Forest, ML, modelo, algoritmo, periodos históricos, MAE, lag, holdout, SQL, DSL, dataset, count_all, API, ticket.
+ESTILO: humano, seguro, preciso. Como un analista que habla en junta — no como un reporte.
+Máximo 2 párrafos cortos (45–80 palabras en total). Ve al grano.
 
 REGLAS:
-1. Contesta la pregunta de forma completa en 2–3 párrafos cortos (aprox. 100–160 palabras).
-2. Usa ÚNICAMENTE cifras y nombres del JSON "hechos". No inventes datos.
-3. Si hay prediccion_ml, explícala como "anticipación" o "proyección operativa" en prosa natural.
-4. Sin PII ni consejo clínico (diagnóstico, tratamiento, dosis).
-5. Cierra con una sugerencia operativa prudente solo si aporta.
+1. Primera frase = respuesta directa a la pregunta (con la cifra o hallazgo principal).
+2. Segunda frase = contexto breve o 1 tip operativo (opcional).
+3. Solo datos del JSON "hechos". No inventes.
+4. No listes todo el ranking: menciona como máximo 2–3 ítems si aportan.
+5. No repitas la pregunta. No rellenes con frases vacías.
+
+PROHIBIDO: Random Forest, ML, algoritmo, dataset, SQL, count_all, "En el detalle destacan",
+"grupo(s) observados", viñetas, markdown, consejos clínicos, PII.
 """
 
-_SYSTEM_CHAT = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
-Puedes proponer consultas al backend del hospital para obtener resultados del HIS y explicarlos con claridad.
+_SYSTEM_CHAT = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
 
-TONO: natural, profesional y completo. Nunca técnico de software ni de machine learning.
+ESTILO: natural y breve (máx. 60 palabras). Suenas a persona, no a menú.
 
-Puedes ayudar con: ocupación y camas, tiempos de espera, medicamentos/farmacia,
-cirugías, alertas operativas y proyecciones de demanda.
+Puedes ayudar con ocupación, esperas, farmacia, cirugías y proyecciones de demanda.
 
-REGLAS:
-1. Responde siempre en lenguaje natural.
-2. Si saludan o preguntan en qué ayudas: preséntate y ofrece 2–4 temas concretos del hospital.
-3. Sin inventar cifras del HIS si no hay consulta de datos.
-4. Sin consejo clínico, sin PII, sin SQL ni nombres de algoritmos.
-5. Máximo ~110 palabras. Invita a una pregunta operativa concreta.
+Si saludan: 2–3 frases + invita a una pregunta concreta.
+Sin inventar cifras. Sin jerga técnica ni markdown.
 """
 
 
@@ -145,6 +141,7 @@ def _etiqueta_intent(intent: str) -> str:
 
 
 def _plantilla(brief: AnswerBrief) -> str:
+    """Fallback profesional si OpenRouter no responde."""
     if brief.clarify:
         return brief.clarify[:_MAX_ANSWER]
     if brief.empty:
@@ -152,46 +149,42 @@ def _plantilla(brief: AnswerBrief) -> str:
             brief.empty_reason
             or "Con la información disponible no puedo responder esa consulta con seguridad."
         ]
-        if brief.forecast:
-            parts.append(brief.forecast)
         if brief.recommendations:
             parts.append(brief.recommendations[0])
+        if brief.limitations:
+            parts.append(brief.limitations[0])
         return " ".join(parts)[:_MAX_ANSWER]
 
-    proy = _es_proyeccion(brief.question)
     partes: list[str] = []
-    if proy and brief.forecast:
-        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
-        if brief.ranking:
-            partes.append(
-                "Como contexto del corte actual, las unidades con más carga son: "
-                + "; ".join(brief.ranking[:3])
-                + "."
-            )
-        if brief.recommendations:
-            tip = brief.recommendations[0]
-            partes.append(tip if tip.endswith(".") else tip + ".")
-        return " ".join(partes)[:_MAX_ANSWER]
-
     if brief.headline:
-        partes.append(brief.headline)
-    if brief.ranking and len(brief.ranking) > 1 and not proy:
-        partes.append("En el detalle destacan: " + "; ".join(brief.ranking[:3]) + ".")
-    if brief.root_cause:
-        partes.append(brief.root_cause)
-    if brief.forecast:
-        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
+        partes.append(brief.headline if brief.headline.endswith(".") else brief.headline + ".")
+    if brief.ranking:
+        sample = brief.ranking[0] or ""
+        if "triage" in sample.lower() or "días" in sample or "dias" in sample.lower():
+            partes.append("Detalle: " + "; ".join(brief.ranking[:3]) + ".")
+        elif len(brief.ranking) > 1:
+            partes.append("También: " + "; ".join(brief.ranking[:2]) + ".")
+    if brief.forecast and _es_proyeccion(brief.question):
+        # Una sola frase de anticipación
+        frase = brief.forecast.split(".")[0].strip()
+        if frase:
+            partes.append(frase + ".")
     if brief.recommendations:
         tip = brief.recommendations[0]
+        # Acortar tip largo
+        if len(tip) > 140:
+            tip = tip[:137].rsplit(" ", 1)[0] + "."
         partes.append(tip if tip.endswith(".") else tip + ".")
+    # No volcar limitations largas en plantilla (salvo UCI nota corta)
+    if brief.limitations and "camas físicas" in brief.limitations[0]:
+        partes.append(brief.limitations[0])
     return " ".join(p for p in partes if p).strip()[:_MAX_ANSWER]
 
 
 _FALLBACK_CHAT = (
-    "Soy Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia. "
-    "Puedo ayudarle con ocupación y camas, tiempos de espera, medicamentos, cirugías "
-    "y proyecciones de demanda usando los datos autorizados del hospital. "
-    "¿Sobre qué tema quiere consultar?"
+    "Soy Susana-AI, del Hospital Susana López de Valencia. "
+    "Puedo ayudarle con ocupación, esperas, farmacia, cirugías o proyecciones. "
+    "¿Qué desea consultar?"
 )
 
 
@@ -253,7 +246,7 @@ async def _llm_chat(messages: list[dict[str, str]], *, max_tokens: int = 320) ->
         return None
     try:
         content, _ = await asyncio.wait_for(
-            client.chat(messages, temperature=0.3, max_tokens=max_tokens),
+            client.chat(messages, temperature=0.35, max_tokens=max_tokens),
             timeout=_LLM_BUDGET_S,
         )
     except asyncio.TimeoutError:
@@ -279,7 +272,7 @@ async def _responder_conversacion(question: str) -> str:
                 ),
             },
         ],
-        max_tokens=220,
+        max_tokens=140,
     )
     return (text or _FALLBACK_CHAT)[:_MAX_ANSWER]
 
@@ -296,10 +289,9 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
         "foco": "proyeccion" if proy and brief.forecast else "descriptivo",
         "fuente": brief.dataset_label,
         "dato_principal": brief.headline,
-        "detalle": brief.ranking[:5],
-        "anticipacion": brief.forecast,
-        "recomendacion": brief.recommendations[:2],
-        "observacion": brief.root_cause,
+        "detalle": brief.ranking[:3],
+        "anticipacion": brief.forecast if proy else None,
+        "recomendacion": brief.recommendations[:1],
         "nota": (brief.limitations[0] if brief.limitations else None),
     }
 
@@ -309,13 +301,13 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
             {
                 "role": "user",
                 "content": (
-                    "Redacta la respuesta completa del chat en prosa profesional. "
-                    "Solo hechos de este JSON; sin jerga técnica.\n"
+                    "Responde en máximo 80 palabras, preciso y natural. "
+                    "Solo hechos de este JSON:\n"
                     f"{json.dumps(hechos, ensure_ascii=False)}"
                 ),
             },
         ],
-        max_tokens=420,
+        max_tokens=220,
     )
     if text and _cifras_ok(brief, text):
         return text[:_MAX_ANSWER]
@@ -412,6 +404,19 @@ async def handle_ask(
     rows = resultado.get("rows") or []
     if not isinstance(rows, list):
         rows = []
+
+    # UCI: si unit no devolvió filas, reintentar por subunidad
+    if (not rows) and "uci" in _norm(question):
+        alt = consulta_uci_alternativa(question, catalog, max_rows=max_rows)
+        if alt:
+            extra = await ejecutar_en_node(ticket, alt)
+            if extra and (extra.get("rows") or []):
+                resultado = extra
+                query = alt
+                rows = extra.get("rows") or []
+                if not isinstance(rows, list):
+                    rows = []
+
     row_count = int(resultado.get("rowCount") or len(rows))
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
 
@@ -420,8 +425,8 @@ async def handle_ask(
 
     forecast_text = ""
     forecast_method: str | None = None
-    # Serie temporal / ML solo si la pregunta pide proyección o hay señal temporal
-    if _es_proyeccion(question) or intent in {"OCCUPANCY", "DEMAND", "WAIT_TIME"}:
+    # ML solo cuando la pregunta pide proyección / evolución (no en las 4 oficiales literales)
+    if _es_proyeccion(question):
         try:
             serie_query = consulta_serie_temporal(question, catalog, max_rows=min(max_rows, 60))
             serie_resultado = resultado
