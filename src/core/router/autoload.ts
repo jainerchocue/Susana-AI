@@ -77,6 +77,7 @@ export async function loadRoutes(app: Express, options: LoadOptions): Promise<Lo
 
   for (const file of files) {
     const absolute = path.join(root, file);
+    // Windows: import() exige file://; una ruta C:\... falla con ERR_UNSUPPORTED_ESM_URL_SCHEME.
     const mod = (await import(pathToFileURL(absolute).href)) as RouteModule;
     const router = mod.default ?? mod.router;
 
