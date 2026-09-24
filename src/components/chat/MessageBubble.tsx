@@ -82,24 +82,15 @@ function AssistantMessageContent({ message }: { message: ChatMessage }) {
   // las demás igual quedan disponibles abajo en sus propias tablas.
   const insight = answer.status === 'ok' && answer.queries[0] ? buildAssistantInsight(answer.queries[0]) : null
   const prediction = answer.status === 'ok' ? extractPrediction(answer.answer) : null
-  const hasInterpretation = Boolean(insight || prediction)
 
   return (
     <div className="flex flex-col gap-3">
       {insight && <AssistantInsightCard insight={insight} />}
       {prediction && <AssistantPredictionCard prediction={prediction} />}
 
-      {hasInterpretation ? (
-        <details className="group">
-          <summary className="cursor-pointer list-none text-xs font-medium text-ink-500 hover:text-ink-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
-            <span className="group-open:hidden">Ver respuesta completa</span>
-            <span className="hidden group-open:inline">Ocultar respuesta completa</span>
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-ink-500">{answer.answer}</p>
-        </details>
-      ) : (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{answer.answer}</p>
-      )}
+      {/* El texto completo siempre es visible: los cards de arriba resaltan una cifra,
+          pero no repiten las observaciones y recomendaciones que sólo trae el párrafo. */}
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{answer.answer}</p>
 
       {answer.queries.map((result, index) => (
         <QueryResultView key={index} result={result} index={index} />

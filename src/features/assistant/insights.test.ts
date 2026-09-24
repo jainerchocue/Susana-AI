@@ -12,6 +12,19 @@ const ANSWER_WITH_PREDICTION =
   'Úselo para decidir turnos, camas y abastecimiento antes del pico; no sustituye el criterio clínico ni la validación del equipo. ' +
   'En el histórico, el día con más carga es el martes (promedio ~148).'
 
+// Otra variante real: mismo backend, redacción distinta para el bloque de predicción.
+const ANSWER_WITH_PREDICTION_ALT_WORDING =
+  'El mayor valor en unidad es «GINECO OBSTRETICIA» con cantidad = 1320 (sobre 10 grupo(s) observados). ' +
+  'En el detalle destacan: GINECO OBSTRETICIA: 1320; HOSPITALIZACION: 3321; PEDIATRIA: 2816. ' +
+  'Observación: «URGENCIAS» concentra ~42% del resultado en este corte (7489 de 17782). ' +
+  'Eso orienta dónde revisar capacidad o flujo; no implica diagnóstico clínico. ' +
+  'Anticipación con Random Forest sobre 60 periodos de ingresos: último valor 136; próximos 3 periodos estimados en 136, 131, 129. ' +
+  'Respecto al último punto, el modelo apunta a una alza de ~0% (tendencia de fondo: estable). ' +
+  'La precisión interna (MAE en holdout) es ~22.4; pesan más lag_7, indice_t, lag_1. ' +
+  'En el histórico, el día con más carga es el martes (promedio ~148). ' +
+  'Priorice revisar capacidad en GINECO OBSTRETICIA, la unidad con mayor conteo en este corte. ' +
+  'La anticipación usa método «random_forest» sobre la serie disponible; no sustituye el criterio del equipo.'
+
 const ANSWER_WITHOUT_PREDICTION =
   'Según los datos de «medications» (20 fila(s)): code=NPV03AN0104, sum_quantity=94429 | code=N02BA001400, sum_quantity=64323. ' +
   'Para decidir ahora: Decisión sugerida: revisar abastecimiento de NPV03AN0104 (consumo/cantidad observada 94429).'
@@ -28,6 +41,19 @@ describe('extractPrediction', () => {
     expect(prediction?.backgroundTrend).toBe('estable')
     expect(prediction?.mae).toBe(21.5)
     expect(prediction?.topFeatures).toEqual(['lag_7', 'lag_1', 'indice_t'])
+  })
+
+  it('parses a prediction block with alternate wording ("Anticipación con Random Forest...")', () => {
+    const prediction = extractPrediction(ANSWER_WITH_PREDICTION_ALT_WORDING)
+    expect(prediction).not.toBeNull()
+    expect(prediction?.label).toBe('ingresos')
+    expect(prediction?.lastObserved).toBe(136)
+    expect(prediction?.forecast).toEqual([136, 131, 129])
+    expect(prediction?.trendDirection).toBe('alza')
+    expect(prediction?.trendPct).toBe(0)
+    expect(prediction?.backgroundTrend).toBe('estable')
+    expect(prediction?.mae).toBe(22.4)
+    expect(prediction?.topFeatures).toEqual(['lag_7', 'indice_t', 'lag_1'])
   })
 
   it('returns null when the answer has no prediction section', () => {

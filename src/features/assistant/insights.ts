@@ -17,23 +17,27 @@ export interface AssistantPrediction {
 }
 
 /**
- * El backend ya calcula una predicción real (Random Forest) pero la entrega mezclada
- * en un párrafo de texto libre, con un formato consistente ("Predicción ML (...)
- * con Random Forest... Último valor observado: N. Pronóstico próximos 3 periodos:
- * A, B, C..."). Se extrae con regexes independientes por campo — si el backend
+ * El backend calcula una predicción real (Random Forest) pero la entrega mezclada
+ * en un párrafo de texto libre — y la frase exacta varía entre consultas (se han
+ * visto al menos "Predicción ML (X) con Random Forest... Último valor observado: N.
+ * Pronóstico próximos 3 periodos: A, B, C..." y "Anticipación con Random Forest
+ * sobre N periodos de X: último valor N; próximos 3 periodos estimados en A, B, C...").
+ * Se extrae con regexes independientes y tolerantes por campo — si el backend
  * cambia una frase puntual, los demás campos se siguen leyendo en vez de perder
  * todo el bloque. Devuelve null cuando la respuesta no incluye una predicción.
  */
 export function extractPrediction(answer: string): AssistantPrediction | null {
-  const labelMatch = answer.match(/Predicción ML\s*\(([^)]+)\)/i)
+  const labelMatch =
+    answer.match(/Predicción ML\s*\(([^)]+)\)/i) ??
+    answer.match(/Anticipaci[oó]n con Random Forest sobre \d+ period[oa]s? de ([^:]+):/i)
   if (!labelMatch) return null
 
-  const lastObservedMatch = answer.match(/Último valor observado:\s*~?(-?\d+(?:[.,]\d+)?)/i)
-  const forecastMatch = answer.match(/Pronóstico próximos \d+ period[oa]s?:\s*([\d.,\s]+?)\./i)
-  const trendMatch = answer.match(/anticipa una (alza|baja)[^~%\d]*~?(-?\d+(?:[.,]\d+)?)\s*%/i)
+  const lastObservedMatch = answer.match(/[uú]ltimo valor(?: observado)?:?\s*~?(-?\d+(?:[.,]\d+)?)/i)
+  const forecastMatch = answer.match(/pr[oó]ximos? \d+ period[oa]s?(?: estimados)?\s*(?:en|:)\s*([\d.,\s]+?)\./i)
+  const trendMatch = answer.match(/(?:anticipa|apunta a) una (alza|baja)[^~%\d]*~?(-?\d+(?:[.,]\d+)?)\s*%/i)
   const backgroundTrendMatch = answer.match(/tendencia de fondo:\s*([^)]+)\)/i)
-  const maeMatch = answer.match(/\(MAE\)[:\s]*~?(-?\d+(?:[.,]\d+)?)/i)
-  const featuresMatch = answer.match(/variables que más pesan:\s*([^.]+)\./i)
+  const maeMatch = answer.match(/MAE[^()]*\)[:\s]*(?:es\s*)?~?(-?\d+(?:[.,]\d+)?)/i)
+  const featuresMatch = answer.match(/pesan(?:\s+m[aá]s)?:?\s*([^.]+)\./i)
 
   const toNumber = (raw: string) => Number(raw.replace(',', '.'))
 
