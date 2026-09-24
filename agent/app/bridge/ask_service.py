@@ -1,4 +1,4 @@
-"""Orquesta POST /v1/ask — Node ejecuta datos; el agente narra con hechos."""
+"""Orquesta POST /v1/ask — Node trae datos; aquí se arma la respuesta (sin LLM aparte)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from app.agent.answer_brief import build_answer_brief
-from app.agent.narrative import render_narrative_async
+from app.agent.answer_brief import AnswerBrief, build_answer_brief
 from app.agent.predictor import Predictor, extract_series_from_result
 from app.agent.recommender import Recommender
 from app.agent.root_cause import root_cause_hint
@@ -21,6 +20,8 @@ from app.bridge.node_client import ejecutar_en_node
 
 logger = logging.getLogger(__name__)
 
+_MAX_ANSWER = 4000
+
 
 def _etiqueta_intent(intent: str) -> str:
     return {
@@ -30,6 +31,57 @@ def _etiqueta_intent(intent: str) -> str:
         "DEMAND": "ingresos",
         "SURGERY": "cirugías",
     }.get(intent, "actividad")
+
+
+def _redactar(brief: AnswerBrief) -> str:
+    """Respuesta profesional anclada solo a hechos del brief (rápida, sin alucinar)."""
+    if brief.clarify:
+        return brief.clarify[:_MAX_ANSWER]
+
+    if brief.empty:
+        parts = [
+            brief.empty_reason
+            or "Con la información disponible no puedo responder esa consulta con seguridad."
+        ]
+        if brief.forecast:
+            parts.append(brief.forecast)
+        if brief.recommendations:
+            parts.append(brief.recommendations[0])
+        if brief.limitations:
+            parts.append(brief.limitations[0])
+        return " ".join(parts)[:_MAX_ANSWER]
+
+    partes: list[str] = []
+    if brief.headline:
+        partes.append(brief.headline)
+    elif brief.points:
+        partes.append(
+            "Según "
+            + brief.dataset_label
+            + ", "
+            + "; ".join(f"{p.label}: {p.value}" for p in brief.points[:4])
+            + "."
+        )
+
+    if brief.ranking and len(brief.ranking) > 1:
+        partes.append("En el detalle destacan: " + "; ".join(brief.ranking[:3]) + ".")
+
+    if brief.root_cause:
+        partes.append(brief.root_cause)
+
+    if brief.forecast:
+        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
+
+    if brief.recommendations:
+        tip = brief.recommendations[0]
+        if not tip.endswith("."):
+            tip += "."
+        partes.append(tip)
+
+    if brief.limitations:
+        partes.append(brief.limitations[0])
+
+    return " ".join(p for p in partes if p).strip()[:_MAX_ANSWER]
 
 
 async def handle_ask(
@@ -52,7 +104,7 @@ async def handle_ask(
             row_count=0,
             clarify=aclaracion,
         )
-        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
+        return {"status": "cannot_answer", "answer": _redactar(brief)}
 
     query = elegir_consulta(question, catalog, max_rows=max_rows)
     if not query:
@@ -68,7 +120,7 @@ async def handle_ask(
                 "medicamentos o cirugías."
             ),
         )
-        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
+        return {"status": "cannot_answer", "answer": _redactar(brief)}
 
     resultado = await ejecutar_en_node(ticket, query)
     if not resultado:
@@ -83,7 +135,7 @@ async def handle_ask(
                 "Intente de nuevo en unos segundos."
             ),
         )
-        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
+        return {"status": "cannot_answer", "answer": _redactar(brief)}
 
     intent = intent_desde_pregunta(question)
     rows = resultado.get("rows") or []
@@ -107,7 +159,6 @@ async def handle_ask(
 
         series, ctx = extract_series_from_result(serie_resultado)
         if series and ctx.get("date_field"):
-            # RF es CPU-bound: fuera del event loop para no congelar uvicorn
             forecast_text, forecast_method = await asyncio.to_thread(
                 Predictor().forecast_facts,
                 series,
@@ -129,7 +180,7 @@ async def handle_ask(
         root_cause=cause,
     )
 
-    answer = await render_narrative_async(brief)
+    answer = _redactar(brief)
     if brief.clarify:
         return {"status": "cannot_answer", "answer": answer}
     if brief.empty and not forecast_text:
