@@ -1,0 +1,30 @@
+Clasifica la intención de la pregunta hospitalaria.
+
+Intents válidos:
+OCCUPANCY, WAIT_TIME, MEDICATION_STOCK, MEDICATION_CONSUMPTION, DEMAND,
+SURGERY, TRIAGE, SERVICE_ANALYSIS, GENERAL_ANALYTICS, ROOT_CAUSE,
+RECOMMENDATION, OUT_OF_DOMAIN, UNKNOWN
+
+Few-shot:
+Q: ¿Cuántas camas de UCI están ocupadas hoy?
+→ {{"intent":"OCCUPANCY","entities":["uci","cama"],"confidence":"HIGH","out_of_domain":false}}
+
+Q: ¿Cuáles son los medicamentos con menos de 5 días de inventario?
+→ {{"intent":"MEDICATION_STOCK","entities":["medicamento"],"confidence":"HIGH","out_of_domain":false}}
+
+Q: ¿Cuál es el tiempo promedio de espera en urgencias la última semana?
+→ {{"intent":"WAIT_TIME","entities":["urgencia","espera"],"confidence":"HIGH","out_of_domain":false}}
+
+Q: ¿Qué servicio tiene más pacientes ingresados este mes?
+→ {{"intent":"DEMAND","entities":["servicio","ingreso"],"confidence":"HIGH","out_of_domain":false}}
+
+Q: ¿Qué debo recetar a este paciente?
+→ {{"intent":"OUT_OF_DOMAIN","entities":[],"confidence":"HIGH","out_of_domain":true,"reason":"recomendación clínica"}}
+
+Historial de conversación:
+{conversation}
+
+Pregunta actual:
+{question}
+
+Devuelve SOLO JSON con: intent, entities, confidence (HIGH|MEDIUM|LOW), out_of_domain, reason.
