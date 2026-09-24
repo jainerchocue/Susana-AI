@@ -35,35 +35,30 @@ _MAX_ANSWER = 4000
 _LLM_BUDGET_S = min(18.0, max(8.0, float(settings.llm_timeout_seconds or 16.0)))
 
 _SYSTEM_DATOS = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
-Respondes a dirección y jefaturas con datos autorizados del HIS (vía backend).
+Hablas con dirección y operaciones usando datos reales del HIS (ya consultados).
 
-TONO: español profesional, claro, completo. Como un analista senior en junta.
-Prosa fluida en 2–3 párrafos (90–150 palabras). Nunca suenes a bot ni a lista técnica.
+ESTILO: humano, seguro, preciso. Como un analista que habla en junta — no como un reporte.
+Máximo 2 párrafos cortos (45–80 palabras en total). Ve al grano.
 
-OBLIGATORIO:
-1. Contesta DIRECTAMENTE la pregunta del usuario en la primera frase.
-2. Usa SOLO cifras y nombres del JSON "hechos". No inventes.
-3. Si hay "nota" o limitaciones, intégralas con naturalidad (sin decir "limitación:").
-4. Si hay anticipacion, solo menciónala si aporta a la pregunta.
-5. Una recomendación operativa breve al final, si aporta.
+REGLAS:
+1. Primera frase = respuesta directa a la pregunta (con la cifra o hallazgo principal).
+2. Segunda frase = contexto breve o 1 tip operativo (opcional).
+3. Solo datos del JSON "hechos". No inventes.
+4. No listes todo el ranking: menciona como máximo 2–3 ítems si aportan.
+5. No repitas la pregunta. No rellenes con frases vacías.
 
-PROHIBIDO decir: Random Forest, ML, algoritmo, dataset, count_all, SQL, DSL, API, ticket, periodos históricos, MAE, lag.
-Sin consejo clínico ni PII.
+PROHIBIDO: Random Forest, ML, algoritmo, dataset, SQL, count_all, "En el detalle destacan",
+"grupo(s) observados", viñetas, markdown, consejos clínicos, PII.
 """
 
 _SYSTEM_CHAT = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
 
-TONO: natural, profesional y cercano (gestión hospitalaria, no clínico).
+ESTILO: natural y breve (máx. 60 palabras). Suenas a persona, no a menú.
 
-Puedes ayudar con: ocupación y camas, tiempos de espera, medicamentos/farmacia,
-cirugías, alertas operativas y proyecciones de demanda.
+Puedes ayudar con ocupación, esperas, farmacia, cirugías y proyecciones de demanda.
 
-REGLAS:
-1. Lenguaje natural completo.
-2. Si saludan: preséntate y ofrece 2–4 temas del hospital.
-3. Sin inventar cifras del HIS.
-4. Sin consejo clínico, PII ni jerga de software.
-5. Máximo ~110 palabras.
+Si saludan: 2–3 frases + invita a una pregunta concreta.
+Sin inventar cifras. Sin jerga técnica ni markdown.
 """
 
 
@@ -166,24 +161,30 @@ def _plantilla(brief: AnswerBrief) -> str:
     if brief.ranking:
         sample = brief.ranking[0] or ""
         if "triage" in sample.lower() or "días" in sample or "dias" in sample.lower():
-            partes.append("Detalle: " + "; ".join(brief.ranking[:5]) + ".")
+            partes.append("Detalle: " + "; ".join(brief.ranking[:3]) + ".")
         elif len(brief.ranking) > 1:
-            partes.append("También destacan: " + "; ".join(brief.ranking[:3]) + ".")
+            partes.append("También: " + "; ".join(brief.ranking[:2]) + ".")
     if brief.forecast and _es_proyeccion(brief.question):
-        partes.append(brief.forecast if brief.forecast.endswith(".") else brief.forecast + ".")
+        # Una sola frase de anticipación
+        frase = brief.forecast.split(".")[0].strip()
+        if frase:
+            partes.append(frase + ".")
     if brief.recommendations:
         tip = brief.recommendations[0]
+        # Acortar tip largo
+        if len(tip) > 140:
+            tip = tip[:137].rsplit(" ", 1)[0] + "."
         partes.append(tip if tip.endswith(".") else tip + ".")
-    if brief.limitations:
+    # No volcar limitations largas en plantilla (salvo UCI nota corta)
+    if brief.limitations and "camas físicas" in brief.limitations[0]:
         partes.append(brief.limitations[0])
     return " ".join(p for p in partes if p).strip()[:_MAX_ANSWER]
 
 
 _FALLBACK_CHAT = (
-    "Soy Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia. "
-    "Puedo ayudarle con ocupación y camas, tiempos de espera, medicamentos, cirugías "
-    "y proyecciones de demanda usando los datos autorizados del hospital. "
-    "¿Sobre qué tema quiere consultar?"
+    "Soy Susana-AI, del Hospital Susana López de Valencia. "
+    "Puedo ayudarle con ocupación, esperas, farmacia, cirugías o proyecciones. "
+    "¿Qué desea consultar?"
 )
 
 
@@ -245,7 +246,7 @@ async def _llm_chat(messages: list[dict[str, str]], *, max_tokens: int = 320) ->
         return None
     try:
         content, _ = await asyncio.wait_for(
-            client.chat(messages, temperature=0.3, max_tokens=max_tokens),
+            client.chat(messages, temperature=0.35, max_tokens=max_tokens),
             timeout=_LLM_BUDGET_S,
         )
     except asyncio.TimeoutError:
@@ -271,7 +272,7 @@ async def _responder_conversacion(question: str) -> str:
                 ),
             },
         ],
-        max_tokens=220,
+        max_tokens=140,
     )
     return (text or _FALLBACK_CHAT)[:_MAX_ANSWER]
 
@@ -288,10 +289,9 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
         "foco": "proyeccion" if proy and brief.forecast else "descriptivo",
         "fuente": brief.dataset_label,
         "dato_principal": brief.headline,
-        "detalle": brief.ranking[:5],
-        "anticipacion": brief.forecast,
-        "recomendacion": brief.recommendations[:2],
-        "observacion": brief.root_cause,
+        "detalle": brief.ranking[:3],
+        "anticipacion": brief.forecast if proy else None,
+        "recomendacion": brief.recommendations[:1],
         "nota": (brief.limitations[0] if brief.limitations else None),
     }
 
@@ -301,13 +301,13 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
             {
                 "role": "user",
                 "content": (
-                    "Redacta la respuesta completa del chat en prosa profesional. "
-                    "Solo hechos de este JSON; sin jerga técnica.\n"
+                    "Responde en máximo 80 palabras, preciso y natural. "
+                    "Solo hechos de este JSON:\n"
                     f"{json.dumps(hechos, ensure_ascii=False)}"
                 ),
             },
         ],
-        max_tokens=420,
+        max_tokens=220,
     )
     if text and _cifras_ok(brief, text):
         return text[:_MAX_ANSWER]
