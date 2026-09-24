@@ -98,20 +98,44 @@ class Recommender:
         return sorted(rows, key=score, reverse=True)
 
     def _for_wait_time(self, rows: list[dict[str, Any]]) -> list[str]:
-        first = rows[0]
+        # Priorizar el triage con mayor espera
+        peor = None
+        peor_val = -1.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            wait = row.get("avg_wait_minutes")
+            if wait is None:
+                continue
+            try:
+                v = float(wait)
+            except (TypeError, ValueError):
+                continue
+            if v > peor_val:
+                peor_val = v
+                peor = row
+        first = peor or (rows[0] if rows else {})
         hours = first.get("horas_espera_promedio")
         wait = first.get("avg_wait_minutes")
         level = first.get("triage_level")
         nivel = f" (triage {level})" if level is not None else ""
         if hours is not None:
+            try:
+                h = f"{float(hours):.1f}"
+            except (TypeError, ValueError):
+                h = str(hours)
             return [
                 f"Conviene reforzar triage y turnos en urgencias{nivel}: "
-                f"el promedio observado es ~{hours} h."
+                f"el promedio observado es ~{h} h."
             ]
         if wait is not None:
+            try:
+                w = f"{float(wait):.1f}"
+            except (TypeError, ValueError):
+                w = str(wait)
             return [
-                f"Conviene ajustar el flujo de urgencias{nivel}: "
-                f"la espera media es ~{wait} min."
+                f"Conviene ajustar el flujo en el nivel con más demora{nivel}: "
+                f"espera media ~{w} min."
             ]
         return [
             "Conviene revisar tiempos de triage por nivel y cubrir el de mayor demora."

@@ -19,11 +19,14 @@ from app.agent.predictor import Predictor, extract_series_from_result
 from app.agent.recommender import Recommender
 from app.agent.root_cause import root_cause_hint
 from app.bridge.dsl_planner import (
+    _umbral_dias,
     consulta_serie_temporal,
     consulta_uci_alternativa,
+    consulta_unidades_actividad,
     elegir_consulta,
     intent_desde_pregunta,
 )
+from app.analytics.statistics import safe_number
 from app.bridge.node_client import ejecutar_en_node
 from app.config.settings import settings
 from app.llm.client import get_llm_client
@@ -404,28 +407,132 @@ async def handle_ask(
     rows = resultado.get("rows") or []
     if not isinstance(rows, list):
         rows = []
+    qn = _norm(question)
 
-    # UCI: si unit no devolvió filas, reintentar por subunidad
-    if (not rows) and "uci" in _norm(question):
-        alt = consulta_uci_alternativa(question, catalog, max_rows=max_rows)
-        if alt:
+    # UCI: reintentos (subunidad / intensivo / sin filtro "hoy")
+    if (not rows) and "uci" in qn:
+        for campo, texto_f, con_hoy in (
+            ("subunit", "UCI", True),
+            ("unit", "INTENSIV", True),
+            ("subunit", "INTENSIV", True),
+            ("subunit", "UCI", False),
+            ("unit", "UCI", False),
+            ("subunit", "INTENSIV", False),
+        ):
+            alt = consulta_uci_alternativa(
+                question,
+                catalog,
+                max_rows=max_rows,
+                campo=campo,
+                texto_filtro=texto_f,
+                con_hoy=con_hoy,
+            )
+            if not alt:
+                continue
             extra = await ejecutar_en_node(ticket, alt)
             if extra and (extra.get("rows") or []):
                 resultado = extra
                 query = alt
-                rows = extra.get("rows") or []
-                if not isinstance(rows, list):
-                    rows = []
+                rows = list(extra.get("rows") or [])
+                break
 
-    row_count = int(resultado.get("rowCount") or len(rows))
+    # Inventario: filtrar por umbral; si ninguno califica, informar el menor real
+    inventario_contexto: str | None = None
+    if ("inventario" in qn or ("medic" in qn and "menos" in qn)) and str(query.get("dataset")) == "alerts":
+        umbral = _umbral_dias(qn, 5)
+        crudas = [r for r in rows if isinstance(r, dict)]
+        filtradas = []
+        for r in crudas:
+            dias = safe_number(r.get("min_value") if r.get("min_value") is not None else r.get("value"))
+            if dias is not None and float(dias) <= umbral:
+                filtradas.append(r)
+        if filtradas:
+            rows = filtradas
+        elif crudas:
+            # Hay LOW_STOCK reales pero todos > umbral: responder con el menor (honesto)
+            def _dias_row(r: dict[str, Any]) -> float:
+                d = safe_number(r.get("min_value") if r.get("min_value") is not None else r.get("value"))
+                return float(d) if d is not None else 1e9
+
+            crudas_ord = sorted(crudas, key=_dias_row)
+            top = crudas_ord[0]
+            d0 = _dias_row(top)
+            codigo = top.get("scope_id") or "código"
+            inventario_contexto = (
+                f"No hay medicamentos con ≤{umbral} días de inventario en alertas activas. "
+                f"El menor stock alertado es {codigo} con ~{d0:.0f} días."
+            )
+            rows = []
+        else:
+            rows = []
+
+    row_count = len(rows)
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
 
-    tips = Recommender().recommend(intent, rows, columns)
-    cause = root_cause_hint(intent, rows, question)
+    empty_hint: str | None = None
+
+    # UCI sin match: consultar unidades reales del HIS (sin inventar)
+    if (not rows) and "uci" in qn and "admissions" in {
+        str(d.get("dataset")) for d in catalog if d.get("dataset")
+    }:
+        ov = consulta_unidades_actividad(catalog, solo_hoy=("hoy" in qn), max_rows=8)
+        if ov:
+            extra = await ejecutar_en_node(ticket, ov)
+            extra_rows = (extra or {}).get("rows") or []
+            if isinstance(extra_rows, list) and extra_rows:
+                nombres = []
+                for r in extra_rows[:5]:
+                    if isinstance(r, dict) and r.get("unit") is not None:
+                        n = safe_number(r.get("count_all") or r.get("count"))
+                        nombres.append(
+                            f"{r.get('unit')}"
+                            + (f" ({int(n)})" if n is not None else "")
+                        )
+                empty_hint = (
+                    "En el HIS no aparece una unidad o subunidad etiquetada como UCI "
+                    + ("hoy. " if "hoy" in qn else "en este corte. ")
+                    + "Las unidades con más actividad son: "
+                    + "; ".join(nombres)
+                    + ". No invento ocupación de UCI si no está en los datos."
+                )
+
+    # Mensajes vacíos honestos
+    if not rows and empty_hint is None:
+        if "uci" in qn:
+            empty_hint = (
+                "No hay ingresos etiquetados como UCI en el HIS para ese corte. "
+                "No atribuyo camas de UCI sin respaldo en la base."
+            )
+        elif inventario_contexto:
+            empty_hint = inventario_contexto
+        elif "inventario" in qn or ("medic" in qn and "menos" in qn):
+            empty_hint = (
+                "No hay alertas LOW_STOCK activas en la base. "
+                "Sin esa señal del motor de alertas no estimo días de inventario."
+            )
+
+    tips = Recommender().recommend(intent, rows, columns) if rows else []
+    cause = root_cause_hint(intent, rows, question) if rows else None
+
+    if not rows and empty_hint:
+        text = await _llm_chat(
+            [
+                {"role": "system", "content": _SYSTEM_DATOS},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Pregunta: {question}\n"
+                        f"Hecho: {empty_hint}\n"
+                        "Responde en 2 frases, claro y profesional, sin inventar cifras."
+                    ),
+                },
+            ],
+            max_tokens=120,
+        )
+        return {"status": "cannot_answer", "answer": (text or empty_hint)[:_MAX_ANSWER]}
 
     forecast_text = ""
     forecast_method: str | None = None
-    # ML solo cuando la pregunta pide proyección / evolución (no en las 4 oficiales literales)
     if _es_proyeccion(question):
         try:
             serie_query = consulta_serie_temporal(question, catalog, max_rows=min(max_rows, 60))
