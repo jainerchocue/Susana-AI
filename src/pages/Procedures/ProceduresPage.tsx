@@ -13,11 +13,13 @@ export default function ProceduresPage() {
   const {
     procedures,
     isLoading,
+    isFetching,
     isError,
     error,
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     create,
@@ -99,6 +101,7 @@ export default function ProceduresPage() {
         data={procedures}
         getRowId={(row) => row.code}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -106,6 +109,7 @@ export default function ProceduresPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />

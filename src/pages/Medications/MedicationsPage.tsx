@@ -74,8 +74,22 @@ function StockEditor({
 }
 
 export default function MedicationsPage() {
-  const { medications, pagination, isLoading, isError, error, refetch, page, limit, search, setSearch, setPage, updateStock, updatingCode } =
-    useMedications()
+  const {
+    medications,
+    pagination,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+    page,
+    limit,
+    search,
+    setSearch,
+    setPage,
+    updateStock,
+    updatingCode,
+  } = useMedications()
   const { count: criticalCount, hasInsufficientData, isLoading: isCriticalLoading } = useCriticalMedications()
   const canManageStock = useAuthStore((state) => state.hasPermission(PERMISSIONS.MEDICATIONS_MANAGE))
 
@@ -157,6 +171,7 @@ export default function MedicationsPage() {
         data={medications}
         getRowId={(row) => row.code}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}

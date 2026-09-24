@@ -22,11 +22,13 @@ export default function TriagesPage() {
   const {
     triages,
     isLoading,
+    isFetching,
     isError,
     error,
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     create,
@@ -117,6 +119,7 @@ export default function TriagesPage() {
         data={triages}
         getRowId={(row) => String(row.id)}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -124,6 +127,7 @@ export default function TriagesPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />

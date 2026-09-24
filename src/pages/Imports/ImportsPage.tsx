@@ -1,15 +1,21 @@
 import { useState } from 'react'
-import { Button, Modal, PageHeader, Select, type SelectOption } from '@/components/ui'
-import { IconUpload } from '@/components/ui/icons'
+import { Badge, Button, Modal, PageHeader, Select, Tooltip, type SelectOption } from '@/components/ui'
+import { IconEye, IconTrash, IconUpload } from '@/components/ui/icons'
 import { ActiveFilterChips } from '@/components/filters/ActiveFilterChips'
+import { DataTable, type DataTableColumn } from '@/components/tables'
 import { useImportJobs } from '@/features/imports/hooks/useImportJobs'
 import { useImportJobDetail } from '@/features/imports/hooks/useImportJobDetail'
 import { useDeleteImportJob } from '@/features/imports/hooks/useUploadImport'
 import { ImportWizard } from '@/features/imports/components/ImportWizard'
-import { ImportJobsList } from '@/features/imports/components/ImportJobsList'
 import { ImportJobDetailView } from '@/features/imports/components/ImportJobDetailView'
-import { IMPORT_STATUS_LABELS, IMPORT_TABLE_META, IMPORT_TABLE_ORDER } from '@/features/imports/tableMeta'
+import {
+  IMPORT_STATUS_LABELS,
+  IMPORT_STATUS_TONE,
+  IMPORT_TABLE_META,
+  IMPORT_TABLE_ORDER,
+} from '@/features/imports/tableMeta'
 import type { ImportJob, ImportStatus, ImportTable } from '@/types'
+import { formatBytes, formatRelativeTime } from '@/utils/format'
 
 const STATUS_OPTIONS: SelectOption[] = (Object.keys(IMPORT_STATUS_LABELS) as ImportStatus[]).map((status) => ({
   label: IMPORT_STATUS_LABELS[status],
@@ -21,12 +27,29 @@ const TABLE_OPTIONS: SelectOption[] = IMPORT_TABLE_ORDER.map((table) => ({
   value: table,
 }))
 
+const ACTIVE_STATUSES = new Set<ImportStatus>(['PENDING', 'RUNNING'])
+
 export default function ImportsPage() {
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [selectedJob, setSelectedJob] = useState<ImportJob | null>(null)
 
-  const { jobs, pagination, isLoading, isFetching, isError, error, refetch, hasPrev, goNext, goPrev, status, setStatus, table, setTable } =
-    useImportJobs()
+  const {
+    jobs,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+    hasPrev,
+    hasNext,
+    currentPage,
+    goNext,
+    goPrev,
+    status,
+    setStatus,
+    table,
+    setTable,
+  } = useImportJobs()
   const { job: liveSelectedJob } = useImportJobDetail(selectedJob?.id ?? null)
   const { remove, deletingId } = useDeleteImportJob()
 
@@ -34,6 +57,66 @@ export default function ImportsPage() {
     status && { key: 'status', label: `Estado: ${IMPORT_STATUS_LABELS[status]}`, onClear: () => setStatus(null) },
     table && { key: 'table', label: `Tabla: ${IMPORT_TABLE_META[table].label}`, onClear: () => setTable(null) },
   ].filter((chip): chip is { key: string; label: string; onClear: () => void } => Boolean(chip))
+
+  const columns: DataTableColumn<ImportJob>[] = [
+    {
+      id: 'table',
+      header: 'Tabla',
+      cell: (row) => {
+        const meta = IMPORT_TABLE_META[row.table]
+        return (
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-100 text-ink-500">
+              <meta.icon className="h-4 w-4" />
+            </span>
+            {meta.label}
+          </div>
+        )
+      },
+    },
+    {
+      id: 'status',
+      header: 'Estado',
+      cell: (row) => (
+        <Badge tone={IMPORT_STATUS_TONE[row.status]} pulse={row.status === 'RUNNING'}>
+          {IMPORT_STATUS_LABELS[row.status]}
+        </Badge>
+      ),
+    },
+    { id: 'fileName', header: 'Archivo', cell: (row) => row.fileName ?? 'Sin nombre' },
+    { id: 'fileBytes', header: 'Tamaño', cell: (row) => formatBytes(row.fileBytes) },
+    { id: 'inserted', header: 'Insertados', cell: (row) => `${row.inserted} de ${row.processed}` },
+    { id: 'createdAt', header: 'Creado', cell: (row) => formatRelativeTime(row.createdAt) },
+    {
+      id: 'actions',
+      header: 'Acciones',
+      cell: (row) => {
+        const isBusy = ACTIVE_STATUSES.has(row.status)
+        return (
+          <div className="flex items-center gap-1">
+            <Tooltip label="Ver detalle">
+              <Button type="button" size="sm" variant="ghost" aria-label="Ver detalle" onClick={() => setSelectedJob(row)}>
+                <IconEye className="h-4 w-4" />
+              </Button>
+            </Tooltip>
+            <Tooltip label={isBusy ? 'No se puede eliminar mientras se procesa' : 'Eliminar registro'}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="Eliminar registro"
+                disabled={isBusy}
+                isLoading={deletingId === row.id}
+                onClick={() => remove(row.id)}
+              >
+                <IconTrash className="h-4 w-4" />
+              </Button>
+            </Tooltip>
+          </div>
+        )
+      },
+    },
+  ]
 
   return (
     <div className="flex flex-col gap-6">
@@ -68,27 +151,23 @@ export default function ImportsPage() {
         <ActiveFilterChips filters={activeFilters} isFetching={isFetching && !isLoading} />
       </div>
 
-      <ImportJobsList
-        jobs={jobs}
+      <DataTable
+        columns={columns}
+        data={jobs}
+        getRowId={(row) => row.id}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
-        onSelect={setSelectedJob}
-        onDelete={remove}
-        deletingId={deletingId}
+        emptyMessage="No se encontraron trabajos de importación."
+        paginationMode="cursor"
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        currentPage={currentPage}
+        onPrev={goPrev}
+        onNext={goNext}
       />
-
-      {!isLoading && !isError && jobs.length > 0 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button type="button" size="sm" variant="secondary" onClick={goPrev} disabled={!hasPrev}>
-            Anterior
-          </Button>
-          <Button type="button" size="sm" variant="secondary" onClick={goNext} disabled={!pagination?.hasNext}>
-            Siguiente
-          </Button>
-        </div>
-      )}
 
       <Modal open={isWizardOpen} onOpenChange={setIsWizardOpen} title="Nueva importación" size="lg">
         <ImportWizard onDone={() => setIsWizardOpen(false)} />

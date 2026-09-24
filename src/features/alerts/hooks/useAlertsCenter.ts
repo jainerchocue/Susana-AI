@@ -72,6 +72,8 @@ export function useAlertsCenter() {
     error: alertsQuery.error,
     refetch: alertsQuery.refetch,
     hasPrev: cursorStack.length > 1,
+    hasNext: alertsQuery.data?.pagination.hasNext ?? false,
+    currentPage: cursorStack.length,
     goNext,
     goPrev,
     status,

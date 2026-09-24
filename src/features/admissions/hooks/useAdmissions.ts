@@ -67,6 +67,7 @@ export function useAdmissions() {
     refetch: listQuery.refetch,
     hasPrev: cursorStack.length > 1,
     hasNext: listQuery.data?.pagination.hasNext ?? false,
+    currentPage: cursorStack.length,
     goNext,
     goPrev,
     create: (input: AdmissionCreateInput) => createMutation.mutateAsync(input),

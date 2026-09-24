@@ -1,9 +1,10 @@
-import { NavLink } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/app/store/authStore'
 import { NAV_ITEMS, type NavGroup, type NavItem } from '@/app/router/navConfig'
 import { cn } from '@/utils/cn'
 import { hasPermission } from '@/utils/permissions'
-import { IconSparkles } from '@/components/ui/icons'
+import { IconChevronDown, IconSparkles } from '@/components/ui/icons'
 
 const GROUP_ORDER: NavGroup[] = ['General', 'Clínico', 'Datos', 'Administración']
 
@@ -50,8 +51,24 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const permissions = useAuthStore((state) => state.permissions)
+  const location = useLocation()
   const visibleItems = NAV_ITEMS.filter((item) => !item.permission || hasPermission(permissions, item.permission))
   const ungroupedItems = visibleItems.filter((item) => !item.group)
+
+  const activeGroup = visibleItems.find(
+    (item) => item.group && (item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)),
+  )?.group
+
+  const [expanded, setExpanded] = useState<Set<NavGroup>>(() => new Set(activeGroup ? [activeGroup] : ['General']))
+
+  function toggleGroup(group: NavGroup) {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+  }
 
   return (
     <nav aria-label="Navegación principal" className="flex h-full w-64 flex-col bg-brand-950 text-white">
@@ -69,22 +86,54 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {GROUP_ORDER.map((group) => {
           const items = visibleItems.filter((item) => item.group === group)
           if (items.length === 0) return null
+          const isExpanded = expanded.has(group)
+          const isActiveGroup = activeGroup === group
+          const panelId = `nav-group-${group}`
+
           return (
-            <div key={group} className="mb-4">
-              <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-300/70">
-                {group}
-              </p>
-              <ul className="flex flex-col gap-1">
-                {items.map((item) => (
-                  <NavItemLink key={item.path} item={item} onNavigate={onNavigate} />
-                ))}
-              </ul>
+            <div key={group} className="mb-1">
+              <button
+                type="button"
+                onClick={() => toggleGroup(group)}
+                aria-expanded={isExpanded}
+                aria-controls={panelId}
+                className={cn(
+                  'flex w-full items-center justify-between rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-wider',
+                  'transition-colors duration-(--duration-fast) hover:text-white',
+                  isActiveGroup ? 'text-accent-400' : 'text-ink-300/80',
+                )}
+              >
+                <span className="flex items-center gap-1.5">
+                  {group}
+                  {!isExpanded && items.length > 0 && (
+                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium normal-case text-ink-300">
+                      {items.length}
+                    </span>
+                  )}
+                </span>
+                <IconChevronDown
+                  className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-(--duration-base) ease-snappy', isExpanded && 'rotate-180')}
+                  aria-hidden="true"
+                />
+              </button>
+              <div
+                id={panelId}
+                className="grid transition-[grid-template-rows] duration-(--duration-base) ease-snappy"
+                style={{ gridTemplateRows: isExpanded ? '1fr' : '0fr' }}
+              >
+                <ul className="flex flex-col gap-1 overflow-hidden">
+                  {items.map((item) => (
+                    <NavItemLink key={item.path} item={item} onNavigate={onNavigate} />
+                  ))}
+                </ul>
+              </div>
+              <div className="mt-2 border-b border-white/5" />
             </div>
           )
         })}
 
         {ungroupedItems.length > 0 && (
-          <ul className="flex flex-col gap-1 border-t border-white/10 pt-2">
+          <ul className="mt-2 flex flex-col gap-1">
             {ungroupedItems.map((item) => (
               <NavItemLink key={item.path} item={item} onNavigate={onNavigate} />
             ))}

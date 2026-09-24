@@ -21,6 +21,7 @@ export default function ServiceRecordsPage() {
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     admissionId,
@@ -167,6 +168,7 @@ export default function ServiceRecordsPage() {
         data={records}
         getRowId={(row) => String(row.id)}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -174,6 +176,7 @@ export default function ServiceRecordsPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />

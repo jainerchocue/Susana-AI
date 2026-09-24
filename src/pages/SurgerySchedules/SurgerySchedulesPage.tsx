@@ -31,6 +31,7 @@ export default function SurgerySchedulesPage() {
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     procedureCode,
@@ -167,6 +168,7 @@ export default function SurgerySchedulesPage() {
         data={schedules}
         getRowId={(row) => String(row.id)}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -174,6 +176,7 @@ export default function SurgerySchedulesPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />

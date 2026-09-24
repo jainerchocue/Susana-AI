@@ -17,6 +17,7 @@ export default function RolesPage() {
     roles,
     pagination,
     isLoading,
+    isFetching,
     isError,
     error,
     refetch,
@@ -138,6 +139,7 @@ export default function RolesPage() {
         data={roles}
         getRowId={(row) => row.id}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}

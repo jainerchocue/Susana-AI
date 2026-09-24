@@ -169,6 +169,7 @@ export default function UsersPage() {
         data={users}
         getRowId={(row) => row.id}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}

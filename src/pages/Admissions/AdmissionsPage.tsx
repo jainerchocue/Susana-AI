@@ -14,11 +14,13 @@ export default function AdmissionsPage() {
   const {
     admissions,
     isLoading,
+    isFetching,
     isError,
     error,
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     create,
@@ -109,6 +111,7 @@ export default function AdmissionsPage() {
         data={admissions}
         getRowId={(row) => String(row.id)}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -116,6 +119,7 @@ export default function AdmissionsPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />

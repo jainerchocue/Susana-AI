@@ -50,6 +50,8 @@ export function useImportJobs() {
     error: jobsQuery.error,
     refetch: jobsQuery.refetch,
     hasPrev: cursorStack.length > 1,
+    hasNext: jobsQuery.data?.pagination.hasNext ?? false,
+    currentPage: cursorStack.length,
     goNext,
     goPrev,
     status,

@@ -1,14 +1,28 @@
 import { useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartCard } from '@/components/charts'
 import { GlobalFilterBar } from '@/components/filters'
-import { useAnalytics } from '@/features/analytics/hooks/useAnalytics'
+import { useAnalytics, useMedicationCatalog, useMedicationConsumption } from '@/features/analytics/hooks/useAnalytics'
 import { useGlobalFilters } from '@/hooks/useGlobalFilters'
 import { useAuthStore } from '@/app/store/authStore'
 import { toast } from '@/app/store/toastStore'
 import { PERMISSIONS } from '@/constants'
 import { analyticsApi } from '@/services/api'
-import { Button, Card, CardBody, CardHeader, PageHeader, QueryStateView } from '@/components/ui'
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  PageHeader,
+  QueryStateView,
+  Select,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  type SelectOption,
+} from '@/components/ui'
+import { IconAlertTriangle, IconBuilding, IconCalendar, IconCapsule } from '@/components/ui/icons'
 import { getDisplayErrorMessage } from '@/utils/errors'
 import { formatDate, formatNumber, formatPercent } from '@/utils/format'
 
@@ -55,6 +69,25 @@ function TriageTooltip({
   )
 }
 
+function ConsumptionTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: Array<{ payload: { date: string; quantity: number } }>
+}) {
+  if (!active || !payload?.length) return null
+  const { date, quantity } = payload[0].payload
+  return (
+    <div className="rounded-xl bg-[#29235C] px-3.5 py-2.5 text-white shadow-xl">
+      <p className="text-xs text-white/70">{formatDate(date)}</p>
+      <p className="text-lg font-semibold leading-tight">
+        {formatNumber(quantity)} <span className="text-xs font-normal text-white/70">unidades</span>
+      </p>
+    </div>
+  )
+}
+
 /** Lista con barra proporcional: se lee el ranking sin comparar números. */
 function RankedList({ items }: { items: { key: string; label: string; sub?: string; value: number }[] }) {
   const max = Math.max(...items.map((i) => i.value), 1)
@@ -71,7 +104,7 @@ function RankedList({ items }: { items: { key: string; label: string; sub?: stri
           </div>
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#29235C]/[0.07]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#327531] to-[#76B82A]"
+              className="h-full rounded-full bg-[#327531]"
               style={{ width: `${Math.max((item.value / max) * 100, 2)}%` }}
             />
           </div>
@@ -97,6 +130,11 @@ export default function AnalyticsPage() {
   const { filters } = useGlobalFilters()
   const { servicesQuery, triageQuery, surgeriesQuery } = useAnalytics(filters)
   const canExport = useAuthStore((state) => state.hasPermission(PERMISSIONS.ANALYTICS_EXPORT))
+
+  const [medicationCode, setMedicationCode] = useState<string | null>(null)
+  const consumptionQuery = useMedicationConsumption(filters, medicationCode)
+  const { medications: medicationCatalog } = useMedicationCatalog()
+  const medicationOptions: SelectOption[] = medicationCatalog.map((med) => ({ label: med.name, value: med.code }))
 
   const period = useMemo(() => buildPeriodLabel(filters.from, filters.to), [filters.from, filters.to])
   const exportParams = { desde: filters.from ?? undefined, hasta: filters.to ?? undefined }
@@ -131,7 +169,7 @@ export default function AnalyticsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Analítica Operativa"
-        description="Hospital Susana López de Valencia — distribución de triage, volumen por servicio y ejecución quirúrgica."
+        description="Hospital Susana López de Valencia — distribución de triage, volumen por servicio, consumo de medicamentos y ejecución quirúrgica."
       />
 
       <GlobalFilterBar />
@@ -155,187 +193,288 @@ export default function AnalyticsPage() {
         </div>
       </section>
 
-      <ChartCard
-        title="Consultas por Nivel de Triage"
-        period={period}
-        isLoading={triageQuery.isLoading}
-        isError={triageQuery.isError}
-        error={triageQuery.error}
-        onRetry={triageQuery.refetch}
-        isEmpty={triageLevels.length === 0}
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={triageLevels} margin={{ top: 26, right: 12, left: 0, bottom: 0 }} barCategoryGap="22%">
-            <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 5" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={{ stroke: GRID_COLOR }} />
-            <YAxis tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={false} width={48} />
-            <Tooltip cursor={{ fill: 'rgba(41,35,92,0.06)' }} content={<TriageTooltip />} />
-            <Bar dataKey="n" name="Consultas" radius={[10, 10, 0, 0]} maxBarSize={56}>
-              {triageLevels.map((row) => (
-                <Cell key={row.label} fill={levelColor(row.level)} />
-              ))}
-              <LabelList
-                dataKey="n"
-                position="top"
-                formatter={(value: unknown) => formatNumber(Number(value))}
-                style={{ fontSize: 12, fontWeight: 600, fill: BRAND.indigo }}
-              />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
+      <Tabs defaultValue="triage">
+        <TabsList>
+          <TabsTrigger value="triage" icon={<IconAlertTriangle className="h-4 w-4" />}>
+            Triage
+          </TabsTrigger>
+          <TabsTrigger value="servicios" icon={<IconBuilding className="h-4 w-4" />}>
+            Servicios (área y especialidad)
+          </TabsTrigger>
+          <TabsTrigger value="medicamentos" icon={<IconCapsule className="h-4 w-4" />}>
+            Medicamentos
+          </TabsTrigger>
+          <TabsTrigger value="cirugias" icon={<IconCalendar className="h-4 w-4" />}>
+            Cirugías
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Principales clasificaciones de triage" />
-          <CardBody>
-            <QueryStateView
-              isLoading={triageQuery.isLoading}
-              isError={triageQuery.isError}
-              error={triageQuery.error}
-              data={triageQuery.data?.porClasificacion}
-              onRetry={triageQuery.refetch}
-              isEmpty={(rows) => rows.length === 0}
-            >
-              {(rows) => (
-                <RankedList
-                  items={rows.slice(0, 8).map((row) => ({
-                    key: String(row.classification),
-                    label: String(row.classification),
-                    value: Number(row.n),
-                  }))}
-                />
-              )}
-            </QueryStateView>
-          </CardBody>
-        </Card>
+        <TabsContent value="triage">
+          <ChartCard
+            title="Consultas por Nivel de Triage"
+            period={period}
+            isLoading={triageQuery.isLoading}
+            isError={triageQuery.isError}
+            error={triageQuery.error}
+            onRetry={triageQuery.refetch}
+            isEmpty={triageLevels.length === 0}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={triageLevels} margin={{ top: 26, right: 12, left: 0, bottom: 0 }} barCategoryGap="22%">
+                <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 5" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={{ stroke: GRID_COLOR }} />
+                <YAxis tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={false} width={48} />
+                <Tooltip cursor={{ fill: 'rgba(41,35,92,0.06)' }} content={<TriageTooltip />} />
+                <Bar dataKey="n" name="Consultas" radius={[10, 10, 0, 0]} maxBarSize={56}>
+                  {triageLevels.map((row) => (
+                    <Cell key={row.label} fill={levelColor(row.level)} />
+                  ))}
+                  <LabelList
+                    dataKey="n"
+                    position="top"
+                    formatter={(value: unknown) => formatNumber(Number(value))}
+                    style={{ fontSize: 12, fontWeight: 600, fill: BRAND.indigo }}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
 
-        <Card>
-          <CardHeader
-            title="Volumen por área y especialidad"
-            subtitle={period}
-            action={
-              canExport && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  isLoading={isExportingServices}
-                  onClick={() => handleExport(() => analyticsApi.downloadServices(exportParams), setIsExportingServices, 'servicios')}
-                >
-                  Exportar CSV
-                </Button>
-              )
-            }
-          />
-          <CardBody>
-            <QueryStateView
-              isLoading={servicesQuery.isLoading}
-              isError={servicesQuery.isError}
-              error={servicesQuery.error}
-              data={servicesQuery.data?.porAreaEspecialidad}
-              onRetry={servicesQuery.refetch}
-              isEmpty={(rows) => rows.length === 0}
-            >
-              {(rows) => (
-                <RankedList
-                  items={rows.slice(0, 8).map((row) => ({
-                    key: `${row.area}-${row.specialty}`,
-                    label: String(row.specialty),
-                    sub: String(row.area),
-                    value: Number(row.quantity),
-                  }))}
-                />
-              )}
-            </QueryStateView>
-          </CardBody>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader
-          title="Actividad quirúrgica"
-          subtitle="El HIS no trae fecha de cirugía — estas cifras son acumuladas, sin período."
-          action={
-            canExport && (
-              <Button
-                variant="ghost"
-                size="sm"
-                isLoading={isExportingSurgeries}
-                onClick={() => handleExport(analyticsApi.downloadSurgeries, setIsExportingSurgeries, 'actividad quirúrgica')}
+          <Card>
+            <CardHeader title="Principales clasificaciones de triage" />
+            <CardBody>
+              <QueryStateView
+                isLoading={triageQuery.isLoading}
+                isError={triageQuery.isError}
+                error={triageQuery.error}
+                data={triageQuery.data?.porClasificacion}
+                onRetry={triageQuery.refetch}
+                isEmpty={(rows) => rows.length === 0}
               >
-                Exportar CSV
-              </Button>
-            )
-          }
-        />
-        <CardBody>
-          <QueryStateView isLoading={surgeriesQuery.isLoading} isError={surgeriesQuery.isError} error={surgeriesQuery.error} data={surgeriesQuery.data} onRetry={surgeriesQuery.refetch}>
-            {(data) => {
-              // Proporción calculada entre ambas cifras, sin depender de si vienen en 0–1 o 0–100
-              const executed = Number(data.verifiable.executedPct)
-              const notExecuted = Number(data.verifiable.notExecutedPct)
-              const sum = executed + notExecuted
-              const executedShare = sum > 0 ? (executed / sum) * 100 : 0
+                {(rows) => (
+                  <RankedList
+                    items={rows.slice(0, 8).map((row) => ({
+                      key: String(row.classification),
+                      label: String(row.classification),
+                      value: Number(row.n),
+                    }))}
+                  />
+                )}
+              </QueryStateView>
+            </CardBody>
+          </Card>
+        </TabsContent>
 
-              return (
-                <div className="grid gap-8 lg:grid-cols-2">
-                  <div className="flex flex-col gap-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
-                        <p className="text-xs text-ink-500">Programaciones</p>
-                        <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.totalSchedules)}</p>
-                      </div>
-                      <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
-                        <p className="text-xs text-ink-500">Verificables</p>
-                        <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.verifiable.total)}</p>
-                      </div>
-                    </div>
+        <TabsContent value="servicios">
+          <Card>
+            <CardHeader
+              title="Volumen por área y especialidad"
+              subtitle={period}
+              action={
+                canExport && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    isLoading={isExportingServices}
+                    onClick={() => handleExport(() => analyticsApi.downloadServices(exportParams), setIsExportingServices, 'servicios')}
+                  >
+                    Exportar CSV
+                  </Button>
+                )
+              }
+            />
+            <CardBody>
+              <QueryStateView
+                isLoading={servicesQuery.isLoading}
+                isError={servicesQuery.isError}
+                error={servicesQuery.error}
+                data={servicesQuery.data?.porAreaEspecialidad}
+                onRetry={servicesQuery.refetch}
+                isEmpty={(rows) => rows.length === 0}
+              >
+                {(rows) => (
+                  <RankedList
+                    items={rows.slice(0, 8).map((row) => ({
+                      key: `${row.area}-${row.specialty}`,
+                      label: String(row.specialty),
+                      sub: String(row.area),
+                      value: Number(row.quantity),
+                    }))}
+                  />
+                )}
+              </QueryStateView>
+            </CardBody>
+          </Card>
+        </TabsContent>
 
-                    <div>
-                      <p className="mb-2 text-xs font-medium text-ink-500">Ejecución de lo verificable</p>
-                      <div
-                        role="img"
-                        aria-label={`${formatPercent(data.verifiable.executedPct)} ejecutadas, ${formatPercent(data.verifiable.notExecutedPct)} no ejecutadas`}
-                        className="flex h-3.5 overflow-hidden rounded-full bg-red-100"
-                      >
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#327531] to-[#76B82A]"
-                          style={{ width: `${executedShare}%` }}
+        <TabsContent value="medicamentos">
+          <div className="flex flex-wrap items-end gap-3">
+            <Select
+              label="Medicamento"
+              options={medicationOptions}
+              placeholder="Todos los medicamentos"
+              value={medicationCode ?? ''}
+              onChange={(event) => setMedicationCode(event.target.value === '' ? null : event.target.value)}
+              className="w-64"
+            />
+          </div>
+
+          <ChartCard
+            title="Consumo en el tiempo"
+            unit="unidades"
+            period={period}
+            isLoading={consumptionQuery.isLoading}
+            isError={consumptionQuery.isError}
+            error={consumptionQuery.error}
+            onRetry={consumptionQuery.refetch}
+            isEmpty={(consumptionQuery.data?.series.length ?? 0) === 0}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={consumptionQuery.data?.series ?? []} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 5" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value: string) => formatDate(value)}
+                  tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID_COLOR }}
+                />
+                <YAxis tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={false} width={48} />
+                <Tooltip cursor={{ stroke: BRAND.indigo, strokeWidth: 1 }} content={<ConsumptionTooltip />} />
+                <Line type="monotone" dataKey="quantity" name="Consumo" stroke={BRAND.forest} strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="Medicamentos más consumidos" subtitle={period} />
+              <CardBody>
+                <QueryStateView
+                  isLoading={consumptionQuery.isLoading}
+                  isError={consumptionQuery.isError}
+                  error={consumptionQuery.error}
+                  data={consumptionQuery.data?.top}
+                  onRetry={consumptionQuery.refetch}
+                  isEmpty={(rows) => rows.length === 0}
+                >
+                  {(rows) => (
+                    <RankedList
+                      items={rows.slice(0, 8).map((row) => ({ key: row.code, label: row.name, sub: row.code, value: row.quantity }))}
+                    />
+                  )}
+                </QueryStateView>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader title="Consumo por área" subtitle={period} />
+              <CardBody>
+                <QueryStateView
+                  isLoading={consumptionQuery.isLoading}
+                  isError={consumptionQuery.isError}
+                  error={consumptionQuery.error}
+                  data={consumptionQuery.data?.byArea}
+                  onRetry={consumptionQuery.refetch}
+                  isEmpty={(rows) => rows.length === 0}
+                >
+                  {(rows) => (
+                    <RankedList items={rows.slice(0, 8).map((row) => ({ key: row.area, label: row.area, value: row.quantity }))} />
+                  )}
+                </QueryStateView>
+              </CardBody>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="cirugias">
+          <Card>
+            <CardHeader
+              title="Actividad quirúrgica"
+              subtitle="El HIS no trae fecha de cirugía — estas cifras son acumuladas, sin período."
+              action={
+                canExport && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    isLoading={isExportingSurgeries}
+                    onClick={() => handleExport(analyticsApi.downloadSurgeries, setIsExportingSurgeries, 'actividad quirúrgica')}
+                  >
+                    Exportar CSV
+                  </Button>
+                )
+              }
+            />
+            <CardBody>
+              <QueryStateView isLoading={surgeriesQuery.isLoading} isError={surgeriesQuery.isError} error={surgeriesQuery.error} data={surgeriesQuery.data} onRetry={surgeriesQuery.refetch}>
+                {(data) => {
+                  // Proporción calculada entre ambas cifras, sin depender de si vienen en 0–1 o 0–100
+                  const executed = Number(data.verifiable.executedPct)
+                  const notExecuted = Number(data.verifiable.notExecutedPct)
+                  const sum = executed + notExecuted
+                  const executedShare = sum > 0 ? (executed / sum) * 100 : 0
+
+                  return (
+                    <div className="grid gap-8 lg:grid-cols-2">
+                      <div className="flex flex-col gap-6">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
+                            <p className="text-xs text-ink-500">Programaciones</p>
+                            <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.totalSchedules)}</p>
+                          </div>
+                          <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
+                            <p className="text-xs text-ink-500">Verificables</p>
+                            <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.verifiable.total)}</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-ink-500">Ejecución de lo verificable</p>
+                          <div
+                            role="img"
+                            aria-label={`${formatPercent(data.verifiable.executedPct)} ejecutadas, ${formatPercent(data.verifiable.notExecutedPct)} no ejecutadas`}
+                            className="flex h-3.5 overflow-hidden rounded-full bg-red-100"
+                          >
+                            <div
+                              className="h-full rounded-full bg-[#327531]"
+                              style={{ width: `${executedShare}%` }}
+                            />
+                          </div>
+                          <div className="mt-3 flex items-start justify-between gap-4 text-sm">
+                            <div>
+                              <p className="flex items-center gap-2 text-xs text-ink-500">
+                                <span className="h-2.5 w-2.5 rounded-full bg-[#327531]" /> Ejecutadas
+                              </p>
+                              <p className="text-lg font-semibold text-[#327531]">{formatPercent(data.verifiable.executedPct)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="flex items-center justify-end gap-2 text-xs text-ink-500">
+                                No ejecutadas <span className="h-2.5 w-2.5 rounded-full bg-red-300" />
+                              </p>
+                              <p className="text-lg font-semibold text-status-critical">{formatPercent(data.verifiable.notExecutedPct)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-3 text-xs font-medium text-ink-500">Procedimientos más frecuentes</p>
+                        <RankedList
+                          items={data.topProcedures.slice(0, 5).map((proc) => ({
+                            key: String(proc.code),
+                            label: String(proc.name),
+                            value: Number(proc.count),
+                          }))}
                         />
                       </div>
-                      <div className="mt-3 flex items-start justify-between gap-4 text-sm">
-                        <div>
-                          <p className="flex items-center gap-2 text-xs text-ink-500">
-                            <span className="h-2.5 w-2.5 rounded-full bg-[#327531]" /> Ejecutadas
-                          </p>
-                          <p className="text-lg font-semibold text-[#327531]">{formatPercent(data.verifiable.executedPct)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="flex items-center justify-end gap-2 text-xs text-ink-500">
-                            No ejecutadas <span className="h-2.5 w-2.5 rounded-full bg-red-300" />
-                          </p>
-                          <p className="text-lg font-semibold text-status-critical">{formatPercent(data.verifiable.notExecutedPct)}</p>
-                        </div>
-                      </div>
                     </div>
-                  </div>
-
-                  <div>
-                    <p className="mb-3 text-xs font-medium text-ink-500">Procedimientos más frecuentes</p>
-                    <RankedList
-                      items={data.topProcedures.slice(0, 5).map((proc) => ({
-                        key: String(proc.code),
-                        label: String(proc.name),
-                        value: Number(proc.count),
-                      }))}
-                    />
-                  </div>
-                </div>
-              )
-            }}
-          </QueryStateView>
-        </CardBody>
-      </Card>
+                  )
+                }}
+              </QueryStateView>
+            </CardBody>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

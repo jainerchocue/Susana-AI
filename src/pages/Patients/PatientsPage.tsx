@@ -14,11 +14,13 @@ export default function PatientsPage() {
   const {
     patients,
     isLoading,
+    isFetching,
     isError,
     error,
     refetch,
     hasPrev,
     hasNext,
+    currentPage,
     goNext,
     goPrev,
     create,
@@ -113,6 +115,7 @@ export default function PatientsPage() {
         data={patients}
         getRowId={(row) => String(row.id)}
         isLoading={isLoading}
+        isFetching={isFetching}
         isError={isError}
         error={error}
         onRetry={refetch}
@@ -120,6 +123,7 @@ export default function PatientsPage() {
         paginationMode="cursor"
         hasPrev={hasPrev}
         hasNext={hasNext}
+        currentPage={currentPage}
         onPrev={goPrev}
         onNext={goNext}
       />
