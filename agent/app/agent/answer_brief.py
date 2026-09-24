@@ -242,21 +242,19 @@ def build_answer_brief(
             top_name = clean[0].get(dim)
             top_metric = _fmt_val(clean[0].get(metric)) if metric else None
             if pregunta_proyeccion and forecast:
-                # La pregunta pide evolución: el dato principal es la proyección
                 headline = (
-                    f"Proyección de {ds_label} para los próximos periodos "
-                    f"(contexto: mayor {_label(dim)} actual «{top_name}»"
+                    f"Anticipación de {ds_label} para los próximos días"
+                    f" (hoy destaca {_label(dim)} «{top_name}»"
                     + (f" con {top_metric}" if top_metric else "")
                     + ")."
                 )
             elif top_metric is not None:
                 headline = (
-                    f"El mayor valor en {_label(dim)} es «{top_name}» "
-                    f"con {_label(metric)} = {top_metric} "
-                    f"(sobre {row_count} grupo(s) observados)."
+                    f"En {_label(dim)}, el mayor volumen corresponde a «{top_name}» "
+                    f"con {_label(metric)} de {top_metric}."
                 )
             else:
-                headline = f"Se observan {row_count} grupos en {_label(dim)}; destaca «{top_name}»."
+                headline = f"En {_label(dim)} destaca «{top_name}»."
     else:
         # Una fila agregada o detalle
         for k in list(dims)[:3] + list(metrics)[:3]:
@@ -265,23 +263,21 @@ def build_answer_brief(
         if metrics and first.get(metrics[0]) is not None:
             m = metrics[0]
             headline = (
-                f"En {ds_label}, {_label(m)} es {_fmt_val(first.get(m))} "
-                f"({row_count} registro(s) en el resultado)."
+                f"En {ds_label}, {_label(m)} asciende a {_fmt_val(first.get(m))}."
             )
         elif points:
             headline = (
-                f"Consulta sobre {ds_label}: "
+                f"Según {ds_label}: "
                 + "; ".join(f"{p.label} {p.value}" for p in points[:3])
                 + "."
             )
         else:
-            headline = f"Se obtuvieron {row_count} registro(s) de {ds_label}."
+            headline = f"Hay resultados disponibles en {ds_label}."
 
     lims = list(limitations or [])
-    if forecast_method:
+    if forecast:
         lims.append(
-            f"La anticipación usa método «{forecast_method}» sobre la serie disponible; "
-            "no sustituye el criterio del equipo."
+            "La anticipación es orientativa y no sustituye el criterio del equipo de operaciones."
         )
 
     return AnswerBrief(

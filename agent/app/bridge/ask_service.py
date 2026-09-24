@@ -32,29 +32,37 @@ logger = logging.getLogger(__name__)
 _MAX_ANSWER = 4000
 _LLM_BUDGET_S = min(14.0, max(8.0, float(settings.llm_timeout_seconds or 14.0)))
 
-_SYSTEM_DATOS = """Eres Susana-AI, analista de inteligencia operativa del Hospital Susana López de Valencia.
-Hablas con directivos y coordinación en español, tono profesional de gestión en salud (no clínico).
+_SYSTEM_DATOS = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
+Consultas datos autorizados del HIS a través del backend del hospital y respondes al equipo de dirección y operaciones.
+
+TONO: 100% lenguaje natural, claro, completo y profesional. Como un analista senior en junta de operaciones.
+Nunca suenes a sistema, a JSON, a bot ni a reporte técnico.
+
+PROHIBIDO en la respuesta (no lo menciones nunca):
+Random Forest, ML, modelo, algoritmo, periodos históricos, MAE, lag, holdout, SQL, DSL, dataset, count_all, API, ticket.
 
 REGLAS:
-1. Contesta la pregunta del usuario de forma natural. El primer párrafo debe responderla.
-2. Usa SOLO cifras y nombres del JSON "hechos". No inventes datos.
-3. Si hay prediccion_ml (proyección), intégrala con claridad; sin jerga (nada de MAE, lag, holdout).
-4. Sin PII, sin SQL, sin consejo clínico.
-5. Prosa fluida (80-140 palabras). Suenas a analista senior, no a menú de opciones.
+1. Contesta la pregunta de forma completa en 2–3 párrafos cortos (aprox. 100–160 palabras).
+2. Usa ÚNICAMENTE cifras y nombres del JSON "hechos". No inventes datos.
+3. Si hay prediccion_ml, explícala como "anticipación" o "proyección operativa" en prosa natural.
+4. Sin PII ni consejo clínico (diagnóstico, tratamiento, dosis).
+5. Cierra con una sugerencia operativa prudente solo si aporta.
 """
 
-_SYSTEM_CHAT = """Eres Susana-AI, asistente de inteligencia operativa del Hospital Susana López de Valencia.
-Hablas en español, cercano y profesional (gestión hospitalaria, no clínico).
+_SYSTEM_CHAT = """Eres Susana-AI, asistente agente de inteligencia operativa del Hospital Susana López de Valencia.
+Puedes proponer consultas al backend del hospital para obtener resultados del HIS y explicarlos con claridad.
+
+TONO: natural, profesional y completo. Nunca técnico de software ni de machine learning.
 
 Puedes ayudar con: ocupación y camas, tiempos de espera, medicamentos/farmacia,
-cirugías, alertas operativas y proyecciones de demanda (con datos del HIS autorizados).
+cirugías, alertas operativas y proyecciones de demanda.
 
 REGLAS:
-1. Responde siempre en lenguaje natural, como una AI útil del hospital.
-2. Si saludan o preguntan en qué ayudas: preséntate brevemente y ofrece 2–4 temas concretos.
-3. No inventes cifras del hospital: sin consulta a datos no des números de ocupación, esperas ni stock.
-4. Sin consejo clínico, sin PII, sin SQL.
-5. Máximo ~100 palabras. Invita a formular una pregunta operativa.
+1. Responde siempre en lenguaje natural.
+2. Si saludan o preguntan en qué ayudas: preséntate y ofrece 2–4 temas concretos del hospital.
+3. Sin inventar cifras del HIS si no hay consulta de datos.
+4. Sin consejo clínico, sin PII, sin SQL ni nombres de algoritmos.
+5. Máximo ~110 palabras. Invita a una pregunta operativa concreta.
 """
 
 
@@ -197,7 +205,28 @@ def _limpia(text: str | None) -> str | None:
     return t.strip().strip('"') or None
 
 
+def _texto_profesional_ok(text: str) -> bool:
+    """Rechaza respuestas con jerga técnica que no debe verse en el chat."""
+    low = text.lower()
+    prohibido = (
+        "random forest",
+        "holdout",
+        "lag_",
+        "mae",
+        "count_all",
+        "dataset",
+        "scikit",
+        "sklearn",
+        "periodos históricos",
+        "períodos históricos",
+        "algoritmo",
+    )
+    return not any(p in low for p in prohibido)
+
+
 def _cifras_ok(brief: AnswerBrief, text: str) -> bool:
+    if not _texto_profesional_ok(text):
+        return False
     allowed = brief.allowed_numbers()
     for raw in re.findall(r"\d+(?:[.,]\d+)?", text):
         n = raw.replace(",", ".")
@@ -261,29 +290,18 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
         return None
 
     proy = _es_proyeccion(brief.question)
+    # No enviar nombres técnicos al LLM (evita que diga Random Forest, etc.)
     hechos: dict[str, Any] = {
         "pregunta": brief.question,
         "foco": "proyeccion" if proy and brief.forecast else "descriptivo",
-        "intent": brief.intent,
         "fuente": brief.dataset_label,
-        "registros": brief.row_count,
         "dato_principal": brief.headline,
-        "puntos": [p.model_dump() for p in brief.points],
-        "ranking": brief.ranking[:5],
-        "prediccion_ml": brief.forecast,
-        "metodo_ml": brief.forecast_method,
-        "recomendacion_operativa": brief.recommendations[:2],
+        "detalle": brief.ranking[:5],
+        "anticipacion": brief.forecast,
+        "recomendacion": brief.recommendations[:2],
         "observacion": brief.root_cause,
+        "nota": (brief.limitations[0] if brief.limitations else None),
     }
-    if proy and brief.forecast:
-        hechos = {
-            "pregunta": brief.question,
-            "foco": "proyeccion",
-            "prediccion_ml": brief.forecast,
-            "metodo_ml": brief.forecast_method,
-            "contexto_unidades": brief.ranking[:3],
-            "recomendacion_operativa": brief.recommendations[:1],
-        }
 
     text = await _llm_chat(
         [
@@ -291,14 +309,14 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
             {
                 "role": "user",
                 "content": (
-                    "Contesta con naturalidad usando SOLO estos hechos verificados.\n"
+                    "Redacta la respuesta completa del chat en prosa profesional. "
+                    "Solo hechos de este JSON; sin jerga técnica.\n"
                     f"{json.dumps(hechos, ensure_ascii=False)}"
                 ),
             },
         ],
-        max_tokens=380,
-    )
-    if text and _cifras_ok(brief, text):
+        max_tokens=420,
+    )    if text and _cifras_ok(brief, text):
         return text[:_MAX_ANSWER]
     if text:
         logger.warning("OpenRouter rechazado por grounding; uso plantilla")

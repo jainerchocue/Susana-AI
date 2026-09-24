@@ -220,8 +220,8 @@ class Predictor:
         context = context or {}
         if len(series) < 3:
             msg = (
-                f"Aún no hay suficientes puntos en el tiempo para proyectar {label} "
-                f"(mínimo 3 periodos; ideal al menos {_MIN_ML} para Random Forest)."
+                f"Aún no hay suficiente historial de {label} para anticipar "
+                "con seguridad los próximos días. Con más datos podré proyectar mejor."
             )
             return msg, "insuficiente"
 
@@ -267,33 +267,32 @@ class Predictor:
             cambio_pct = ((proy - ultimo) / ultimo) * 100.0
 
         horizon_txt = ", ".join(f"{v:.0f}" for v in futuros)
-        # Mensaje para el chat: sin jerga (MAE, lag_*, etc.)
+        # Texto para el chat: 100% lenguaje operativo (sin nombres de algoritmo)
         partes = [
-            f"Para los próximos {_HORIZON} periodos de {label}, la proyección "
-            f"(Random Forest, {len(series)} periodos históricos) estima {horizon_txt}. "
-            f"El último valor observado fue {ultimo:.0f}."
+            f"Para los próximos días, la anticipación de {label} apunta a "
+            f"alrededor de {horizon_txt} (el último valor observado fue {ultimo:.0f})."
         ]
         if cambio_pct is not None:
             if abs(cambio_pct) < 2:
-                partes.append("Respecto al último punto, se mantiene prácticamente estable.")
+                partes.append("Respecto al día más reciente, la carga se mantiene prácticamente estable.")
             else:
-                sentido = "alza" if cambio_pct >= 0 else "baja"
+                sentido = "al alza" if cambio_pct >= 0 else "a la baja"
                 partes.append(
-                    f"Respecto al último punto, apunta a una {sentido} "
-                    f"de ~{abs(cambio_pct):.0f}% (tendencia de fondo: {tendencia})."
+                    f"Respecto al día más reciente, la señal va {sentido} "
+                    f"cerca de un {abs(cambio_pct):.0f}% (tendencia general: {tendencia})."
                 )
         else:
-            partes.append(f"Tendencia de fondo: {tendencia}.")
+            partes.append(f"La tendencia general se ve {tendencia}.")
 
         peak = context.get("peak_day")
         by_wd = context.get("by_weekday") or {}
         if peak and peak in by_wd:
             partes.append(
-                f"En el histórico, el día con más carga suele ser el {peak} "
-                f"(promedio ~{by_wd[peak]:.0f})."
+                f"En el historial, el día de mayor carga suele ser el {peak} "
+                f"(promedio cercano a {by_wd[peak]:.0f})."
             )
 
-        _ = (top_feats, mae)  # métricas internas; no van al chat
+        _ = (top_feats, mae)
         return " ".join(partes)
 
     def _message_tendencia(
@@ -320,43 +319,47 @@ class Predictor:
             pct = ((segunda - primera) / primera) * 100.0
 
         partes: list[str] = [
-            f"Anticipación preliminar de {label} con tendencia explicable "
-            f"({len(series)} puntos; Random Forest pide al menos {_MIN_ML})."
+            f"Con el historial disponible de {label}, la anticipación para los próximos días "
+            "es orientativa; con más recorrido temporal ganará certeza."
         ]
 
         if tendencia == "creciente":
             if pct is not None:
                 partes.append(
-                    f"La segunda mitad del periodo está ~{pct:.0f}% por encima de la primera."
+                    f"La segunda mitad del periodo está cerca de un {pct:.0f}% por encima de la primera."
                 )
             else:
-                partes.append("La serie muestra tendencia creciente.")
-            ma_txt = f", media móvil {ventana}: {ma_ultimo:.0f}" if ma_ultimo is not None else ""
+                partes.append("Se observa una tendencia creciente.")
             partes.append(
-                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f}{ma_txt})."
+                f"Para el próximo periodo se estima alrededor de {proyectado:.0f} "
+                f"(último valor {ultimo:.0f}"
+                + (f"; media reciente {ma_ultimo:.0f}" if ma_ultimo is not None else "")
+                + ")."
             )
         elif tendencia == "decreciente":
             if pct is not None:
                 partes.append(
-                    f"La segunda mitad está ~{abs(pct):.0f}% por debajo de la primera."
+                    f"La segunda mitad está cerca de un {abs(pct):.0f}% por debajo de la primera."
                 )
             else:
-                partes.append("La serie muestra tendencia decreciente.")
+                partes.append("Se observa una tendencia decreciente.")
             partes.append(
-                f"Próximo periodo estimado ~{proyectado:.0f} (último {ultimo:.0f})."
+                f"Para el próximo periodo se estima alrededor de {proyectado:.0f} "
+                f"(último valor {ultimo:.0f})."
             )
         else:
-            ma_txt = f", media móvil {ventana}: {ma_ultimo:.0f}" if ma_ultimo is not None else ""
             partes.append(
-                f"Patrón estable (último {ultimo:.0f}{ma_txt}); "
-                f"proyección cercana a ~{proyectado:.0f}."
+                f"El patrón se ve estable (último valor {ultimo:.0f}"
+                + (f"; media reciente {ma_ultimo:.0f}" if ma_ultimo is not None else "")
+                + f"); la proyección se acerca a {proyectado:.0f}."
             )
 
         peak = context.get("peak_day")
         by_wd = context.get("by_weekday") or {}
         if peak and peak in by_wd:
             partes.append(
-                f"Día histórico de mayor carga: {peak} (promedio ~{by_wd[peak]:.0f})."
+                f"El día histórico de mayor carga suele ser el {peak} "
+                f"(promedio cercano a {by_wd[peak]:.0f})."
             )
 
         return " ".join(partes)
