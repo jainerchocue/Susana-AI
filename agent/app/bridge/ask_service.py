@@ -1,13 +1,21 @@
-"""Orquesta POST /v1/ask — contrato Node (Susana-AI)."""
+"""Orquesta POST /v1/ask — Node ejecuta datos; el agente narra con hechos."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from app.agent.answer_brief import build_answer_brief
+from app.agent.narrative import render_narrative_async
 from app.agent.predictor import Predictor, extract_series_from_result
 from app.agent.recommender import Recommender
-from app.bridge.dsl_planner import consulta_serie_temporal, elegir_consulta, intent_desde_pregunta
+from app.agent.root_cause import root_cause_hint
+from app.bridge.dsl_planner import (
+    aclaracion_si_ambigua,
+    consulta_serie_temporal,
+    elegir_consulta,
+    intent_desde_pregunta,
+)
 from app.bridge.node_client import ejecutar_en_node
 
 logger = logging.getLogger(__name__)
@@ -15,50 +23,12 @@ logger = logging.getLogger(__name__)
 
 def _etiqueta_intent(intent: str) -> str:
     return {
-        "MEDICATION_STOCK": "consumo/stock",
+        "MEDICATION_STOCK": "consumo",
         "WAIT_TIME": "minutos de espera",
-        "OCCUPANCY": "ingresos / ocupación",
+        "OCCUPANCY": "ingresos",
         "DEMAND": "ingresos",
         "SURGERY": "cirugías",
     }.get(intent, "actividad")
-
-
-def _redactar(
-    query: dict[str, Any],
-    resultado: dict[str, Any],
-    recommendations: list[str],
-    forecast: str | None = None,
-) -> str:
-    rows = resultado.get("rows") or []
-    row_count = resultado.get("rowCount", len(rows))
-    dataset = query.get("dataset", "?")
-
-    if row_count == 0 or not rows:
-        base = (
-            f"No encontré datos en «{dataset}» para responder esa pregunta "
-            "con la información disponible."
-        )
-        if forecast:
-            return f"{base} {forecast}"[:4000]
-        return base
-
-    # Resumen de primeras filas (lenguaje claro)
-    preview_bits: list[str] = []
-    for fila in rows[:5]:
-        if not isinstance(fila, dict):
-            continue
-        partes = [f"{k}={v}" for k, v in list(fila.items())[:4]]
-        preview_bits.append(", ".join(partes))
-    resumen = " | ".join(preview_bits)
-
-    partes_out = [
-        f"Según los datos de «{dataset}» ({row_count} fila(s)): {resumen}."
-    ]
-    if forecast:
-        partes_out.append(forecast)
-    if recommendations:
-        partes_out.append("Para decidir ahora: " + " ".join(recommendations[:3]))
-    return " ".join(partes_out)[:4000]
 
 
 async def handle_ask(
@@ -71,29 +41,61 @@ async def handle_ask(
     limits = limits or {}
     max_rows = int(limits.get("maxRows") or 100)
 
+    aclaracion = aclaracion_si_ambigua(question, catalog)
+    if aclaracion:
+        brief = build_answer_brief(
+            question=question,
+            intent="CLARIFY",
+            dataset="",
+            rows=[],
+            row_count=0,
+            clarify=aclaracion,
+        )
+        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
+
     query = elegir_consulta(question, catalog, max_rows=max_rows)
     if not query:
-        return {
-            "status": "cannot_answer",
-            "answer": "No tengo un dataset disponible para responder eso con tus permisos.",
-        }
+        brief = build_answer_brief(
+            question=question,
+            intent="GENERAL_ANALYTICS",
+            dataset="",
+            rows=[],
+            row_count=0,
+            clarify=(
+                "No tengo un conjunto de datos disponible con sus permisos "
+                "para responder esa pregunta. Pruebe con ocupación, esperas, "
+                "medicamentos o cirugías."
+            ),
+        )
+        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
 
     resultado = await ejecutar_en_node(ticket, query)
     if not resultado:
-        return {
-            "status": "cannot_answer",
-            "answer": "No pude obtener datos del sistema para responder.",
-        }
+        brief = build_answer_brief(
+            question=question,
+            intent=intent_desde_pregunta(question),
+            dataset=str(query.get("dataset") or ""),
+            rows=[],
+            row_count=0,
+            clarify=(
+                "No pude obtener datos del sistema en este momento. "
+                "Intente de nuevo en unos segundos."
+            ),
+        )
+        return {"status": "cannot_answer", "answer": await render_narrative_async(brief)}
 
     intent = intent_desde_pregunta(question)
     rows = resultado.get("rows") or []
     if not isinstance(rows, list):
         rows = []
+    row_count = int(resultado.get("rowCount") or len(rows))
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
-    tips = Recommender().recommend(intent, rows, columns)
 
-    # Anticipación: serie temporal aparte (o la misma si ya viene por día).
+    tips = Recommender().recommend(intent, rows, columns)
+    cause = root_cause_hint(intent, rows, question)
+
     forecast_text = ""
+    forecast_method: str | None = None
     try:
         serie_query = consulta_serie_temporal(question, catalog, max_rows=min(max_rows, 60))
         serie_resultado = resultado
@@ -103,9 +105,8 @@ async def handle_ask(
                 serie_resultado = extra
 
         series, ctx = extract_series_from_result(serie_resultado)
-        # Solo proyectar si hay eje temporal; un ranking por medicamento no es serie.
         if series and ctx.get("date_field"):
-            forecast_text = Predictor().forecast_message(
+            forecast_text, forecast_method = Predictor().forecast_facts(
                 series,
                 label=_etiqueta_intent(intent),
                 context=ctx,
@@ -113,7 +114,21 @@ async def handle_ask(
     except Exception:
         logger.exception("No se pudo calcular la anticipación; se responde solo con datos")
 
-    return {
-        "status": "ok",
-        "answer": _redactar(query, resultado, tips, forecast_text or None),
-    }
+    brief = build_answer_brief(
+        question=question,
+        intent=intent,
+        dataset=str(query.get("dataset") or ""),
+        rows=rows,
+        row_count=row_count,
+        recommendations=tips,
+        forecast=forecast_text or None,
+        forecast_method=forecast_method,
+        root_cause=cause,
+    )
+
+    answer = await render_narrative_async(brief)
+    if brief.clarify:
+        return {"status": "cannot_answer", "answer": answer}
+    if brief.empty and not forecast_text:
+        return {"status": "cannot_answer", "answer": answer}
+    return {"status": "ok", "answer": answer}

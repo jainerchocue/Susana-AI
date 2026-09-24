@@ -147,3 +147,70 @@ def intent_desde_pregunta(question: str) -> str:
     if "cirug" in t:
         return "SURGERY"
     return "GENERAL_ANALYTICS"
+
+
+def aclaracion_si_ambigua(question: str, catalog: list[dict[str, Any]]) -> str | None:
+    """
+    Si la pregunta es demasiado vaga para operar con seguridad,
+    pide un dato concreto en lugar de inventar un corte.
+    """
+    t = _norm(question).strip()
+    if len(t) < 8:
+        return (
+            "¿Puede precisar un poco más? Por ejemplo: ocupación de urgencias, "
+            "tiempo de espera, medicamentos con bajo stock o el servicio con más ingresos."
+        )
+
+    # Preguntas genéricas tipo "cómo vamos" / "dame un resumen" sin tema
+    genericas = (
+        "como vamos",
+        "como esta",
+        "cómo está",
+        "resumen",
+        "todo",
+        "general",
+        "situacion",
+        "situación",
+        "que pasa",
+        "qué pasa",
+    )
+    tiene_tema = any(
+        k in t
+        for k in (
+            "uci",
+            "cama",
+            "ocupac",
+            "espera",
+            "triage",
+            "medic",
+            "stock",
+            "invent",
+            "cirug",
+            "quirurg",
+            "alerta",
+            "demanda",
+            "ingres",
+            "servicio",
+            "urgenc",
+            "predic",
+            "tendenc",
+        )
+    )
+    if any(g in t for g in genericas) and not tiene_tema:
+        disponibles = sorted(_datasets(catalog))
+        ejemplos = []
+        if "admissions" in disponibles:
+            ejemplos.append("ocupación por unidad")
+            ejemplos.append("tiempos de espera en urgencias")
+        if "medications" in disponibles:
+            ejemplos.append("medicamentos con mayor consumo")
+        if "surgeries" in disponibles:
+            ejemplos.append("cirugías programadas vs ejecutadas")
+        if not ejemplos:
+            ejemplos = ["ocupación", "esperas", "farmacia"]
+        return (
+            "Para orientarle mejor, indíqueme el tema. Por ejemplo: "
+            + "; ".join(ejemplos[:3])
+            + "."
+        )
+    return None

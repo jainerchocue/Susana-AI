@@ -1,3 +1,4 @@
+"""Recomendaciones operativas en prosa natural (sin prefijos robóticos)."""
 
 from __future__ import annotations
 
@@ -5,7 +6,7 @@ from typing import Any
 
 
 class Recommender:
-    """Genera recomendaciones a partir del intent + filas de resultado."""
+    """Genera 1–3 recomendaciones accionables a partir del intent + filas."""
 
     def recommend(
         self,
@@ -13,17 +14,10 @@ class Recommender:
         rows: list[dict[str, Any]],
         columns: list[str] | None = None,
     ) -> list[str]:
-        """
-        Devuelve 1–3 strings de recomendación operativa.
-
-        Esta función YA enruta según intent.
-        TÚ implementas los métodos _for_* de abajo.
-        """
         if not rows:
             return []
 
         out: list[str] = []
-
         if intent in {"MEDICATION_STOCK", "MEDICATION_CONSUMPTION"}:
             out.extend(self._for_medications(rows))
         elif intent == "OCCUPANCY":
@@ -32,16 +26,14 @@ class Recommender:
             out.extend(self._for_wait_time(rows))
         elif intent == "DEMAND":
             out.extend(self._for_demand(rows))
+        elif intent == "SURGERY":
+            out.extend(self._for_surgery(rows))
 
         return [r for r in out if r][:3]
 
-    # -------------------------------------------------------------------------
-    # PASO A — EMPIEZA AQUÍ (borra el raise y escribe tu código)
-    # -------------------------------------------------------------------------
     def _for_medications(self, rows: list[dict[str, Any]]) -> list[str]:
-        """Tu lógica: una frase por medicamento, máximo 3 (el corte lo hace recommend)."""
-        tips_list = []
-        for row in rows:
+        tips: list[str] = []
+        for row in rows[:3]:
             name = (
                 row.get("NombreServicio")
                 or row.get("medicamento")
@@ -50,61 +42,77 @@ class Recommender:
             )
             qty = row.get("sum_quantity") or row.get("quantity") or row.get("total")
             if name and qty is not None:
-                tips_list.append(
-                    f"Decisión sugerida: revisar abastecimiento de {name} "
-                    f"(consumo/cantidad observada {qty})."
+                tips.append(
+                    f"Conviene revisar el abastecimiento de {name} "
+                    f"(consumo observado {qty})."
                 )
             elif name:
-                tips_list.append(
-                    f"Decisión sugerida: revisar el abastecimiento de {name} según el consumo observado."
+                tips.append(
+                    f"Conviene revisar el abastecimiento de {name} según el consumo reciente."
                 )
-        return tips_list
+        return tips
 
     def _for_occupancy(self, rows: list[dict[str, Any]]) -> list[str]:
-        """Recomendación orientada a decisión (capacidad / UCI)."""
         first = rows[0]
         occupied = first.get("camas_ocupadas")
-        if occupied is None:
+        unit = first.get("unit")
+        if occupied is not None:
+            donde = f" en {unit}" if unit else ""
             return [
-                "Priorice revisar camas y UCI en las unidades con mayor conteo; "
-                "si la anticipación marca tendencia creciente, active contingencia de camas."
+                f"Conviene revisar disponibilidad de camas{donde}: "
+                f"se observan {occupied} ocupadas; prepare turnos y posibles traslados si la carga sigue alta."
+            ]
+        if unit:
+            return [
+                f"Priorice revisar capacidad en {unit}, la unidad con mayor conteo en este corte."
             ]
         return [
-            f"Decisión sugerida: revisar disponibilidad UCI — se observan {occupied} cama(s) ocupadas; "
-            "cubra turnos y posibles traslados antes del pico."
+            "Priorice revisar camas en las unidades con mayor conteo; "
+            "si la anticipación marca alza, active contingencia de capacidad."
         ]
 
     def _for_wait_time(self, rows: list[dict[str, Any]]) -> list[str]:
         first = rows[0]
         hours = first.get("horas_espera_promedio")
         wait = first.get("avg_wait_minutes")
+        level = first.get("triage_level")
+        nivel = f" (triage {level})" if level is not None else ""
         if hours is not None:
             return [
-                f"Decisión sugerida: reforzar triage/turnos en urgencias "
-                f"(promedio observado ~{hours} h); anticipe demora si la serie sigue al alza."
+                f"Conviene reforzar triage y turnos en urgencias{nivel}: "
+                f"el promedio observado es ~{hours} h."
             ]
         if wait is not None:
             return [
-                f"Decisión sugerida: ajustar flujo de urgencias "
-                f"(espera media ~{wait} min); prepare refuerzo si la tendencia es creciente."
+                f"Conviene ajustar el flujo de urgencias{nivel}: "
+                f"la espera media es ~{wait} min."
             ]
         return [
-            "Decisión sugerida: revisar tiempos de triage por nivel y cubrir el nivel con mayor demora."
+            "Conviene revisar tiempos de triage por nivel y cubrir el de mayor demora."
         ]
 
     def _for_demand(self, rows: list[dict[str, Any]]) -> list[str]:
         top = rows[0]
-        service = top.get("ViaIngreso") or top.get("AreaServicio") or top.get("NombreServicio") or top.get("unit")
+        service = (
+            top.get("ViaIngreso")
+            or top.get("AreaServicio")
+            or top.get("NombreServicio")
+            or top.get("unit")
+        )
         total = top.get("total") or top.get("count_all")
-        if not service:
+        if service and total is not None:
             return [
-                "Decisión sugerida: identifique el servicio con más ingresos y refuerce capacidad allí primero."
+                f"Conviene reforzar capacidad en {service}, "
+                f"que concentra {total} en el periodo analizado."
             ]
-        if total is not None:
-            return [
-                f"Decisión sugerida: reforzar capacidad en {service} "
-                f"(concentra {total} en el periodo) y prepare el día pico que indique la anticipación."
-            ]
+        if service:
+            return [f"Conviene reforzar capacidad en {service}, el de mayor demanda observada."]
         return [
-            f"Decisión sugerida: reforzar capacidad en {service}, el de mayor demanda observada."
+            "Identifique el servicio con más ingresos y refuerce capacidad allí primero."
+        ]
+
+    def _for_surgery(self, rows: list[dict[str, Any]]) -> list[str]:
+        return [
+            "Revise quirófanos con más programaciones pendientes versus ejecutadas "
+            "para rebalancear agenda."
         ]
