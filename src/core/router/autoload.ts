@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Express, Router } from 'express';
 import { logger } from '../logger';
 
@@ -76,7 +77,7 @@ export async function loadRoutes(app: Express, options: LoadOptions): Promise<Lo
 
   for (const file of files) {
     const absolute = path.join(root, file);
-    const mod = (await import(absolute)) as RouteModule;
+    const mod = (await import(pathToFileURL(absolute).href)) as RouteModule;
     const router = mod.default ?? mod.router;
 
     if (!isRouter(router)) {
