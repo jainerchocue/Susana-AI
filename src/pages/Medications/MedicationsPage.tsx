@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DataTable, type DataTableColumn } from '@/components/tables'
-import { Badge, Button, Input, PageHeader, type BadgeTone } from '@/components/ui'
+import { Badge, Button, Input, PageHeader, Tooltip, type BadgeTone } from '@/components/ui'
+import { IconEdit } from '@/components/ui/icons'
 import { useAuthStore } from '@/app/store/authStore'
 import { useCriticalMedications, useMedications } from '@/features/medications/hooks/useMedications'
 import { PERMISSIONS } from '@/constants'
@@ -34,9 +35,11 @@ function StockEditor({
 
   if (!editing) {
     return (
-      <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-        Editar stock
-      </Button>
+      <Tooltip label={`Editar stock de ${medication.name}`}>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(true)} aria-label={`Editar stock de ${medication.name}`}>
+          <IconEdit className="h-4 w-4" />
+        </Button>
+      </Tooltip>
     )
   }
 

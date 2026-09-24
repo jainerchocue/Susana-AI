@@ -26,10 +26,13 @@ function isBetterAuthError(body: unknown): body is BetterAuthErrorBody {
 
 export const httpClient = axios.create({
   baseURL,
-  // Mantiene la cookie httpOnly (funciona en despliegues same-site); ver authStore para por qué
-  // ADEMÁS se adjunta un bearer token: en este cross-origin dev/tunnel la cookie SameSite=Lax
-  // de Better Auth no sobrevive a peticiones fetch/XHR de otro sitio.
-  withCredentials: true,
+  // Bearer-only a propósito: cuando el navegador SÍ adjunta la cookie de sesión de Better Auth
+  // (same-site, ej. localhost:5173 -> localhost:3000) el backend aplica una verificación de
+  // Origin para peticiones autenticadas por cookie en cualquier método de escritura y responde
+  // 403 "Origen no permitido para esta operacion" — reproducido con curl en POST /imports,
+  // DELETE /imports y PATCH /alerts. El token Bearer ya es la fuente real de autenticación en
+  // toda la app, así que se omite la cookie por completo para no disparar esa verificación.
+  withCredentials: false,
   timeout: 20_000,
 })
 

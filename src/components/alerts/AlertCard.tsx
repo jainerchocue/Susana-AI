@@ -1,5 +1,6 @@
 import type { Alert, AlertStatus } from '@/types'
 import { Button, Card, CardBody } from '@/components/ui'
+import { IconCheck, IconEye } from '@/components/ui/icons'
 import { alertTypeLabel } from '@/constants/alertTypes'
 import { cn } from '@/utils/cn'
 import { formatNumber, formatRelativeTime } from '@/utils/format'
@@ -58,10 +59,12 @@ export function AlertCard({ alert, canManage, onUpdateStatus, isUpdating }: Aler
                 isLoading={isUpdating}
                 onClick={() => onUpdateStatus?.(alert.id, 'ACKNOWLEDGED')}
               >
+                <IconEye className="h-4 w-4" />
                 Reconocer
               </Button>
             )}
             <Button size="sm" isLoading={isUpdating} onClick={() => onUpdateStatus?.(alert.id, 'RESOLVED')}>
+              <IconCheck className="h-4 w-4" />
               Resolver
             </Button>
           </div>

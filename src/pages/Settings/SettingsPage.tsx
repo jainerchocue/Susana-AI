@@ -1,7 +1,7 @@
 import { useMemo, useState, type ComponentType, type SVGProps } from 'react'
 import { useAuthStore } from '@/app/store/authStore'
 import { toast } from '@/app/store/toastStore'
-import { Badge, Card, CardBody, CardHeader, EmptyState, Input, PageHeader, type BadgeTone } from '@/components/ui'
+import { Badge, Card, CardBody, CardHeader, EmptyState, Input, PageHeader, Tooltip, type BadgeTone } from '@/components/ui'
 import {
   IconBell,
   IconBuilding,
@@ -193,12 +193,9 @@ export default function SettingsPage() {
       />
 
       <Card className="overflow-hidden">
-        <div className="relative bg-linear-to-br from-brand-950 via-brand-800 to-brand-600 px-6 py-8 sm:px-8">
-          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-accent-400/15 blur-3xl" aria-hidden="true" />
-          <div className="pointer-events-none absolute -bottom-24 right-24 h-48 w-48 rounded-full bg-brand-400/20 blur-3xl" aria-hidden="true" />
-
+        <div className="relative bg-brand-900 px-6 py-8 sm:px-8">
           <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
-            <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-400 to-accent-400 text-2xl font-bold text-white shadow-glow-brand">
+            <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-brand-600 text-2xl font-bold text-white shadow-glow-brand">
               {initials(user.name)}
             </span>
 
@@ -210,14 +207,16 @@ export default function SettingsPage() {
 
               <div className="mt-1 flex items-center gap-2">
                 <p className="truncate text-sm text-ink-300">{user.email}</p>
-                <button
-                  type="button"
-                  onClick={copyEmail}
-                  className="shrink-0 rounded-md p-1 text-ink-300 transition-colors hover:bg-white/10 hover:text-white"
-                  aria-label="Copiar correo electrónico"
-                >
-                  <IconCopy className="h-3.5 w-3.5" />
-                </button>
+                <Tooltip label="Copiar correo electrónico">
+                  <button
+                    type="button"
+                    onClick={copyEmail}
+                    className="shrink-0 rounded-md p-1 text-ink-300 transition-colors hover:bg-white/10 hover:text-white"
+                    aria-label="Copiar correo electrónico"
+                  >
+                    <IconCopy className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-1.5">

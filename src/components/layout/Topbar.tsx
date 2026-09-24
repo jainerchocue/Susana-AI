@@ -1,6 +1,6 @@
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { roleLabel } from '@/constants'
-import { Button } from '@/components/ui'
+import { Button, Tooltip } from '@/components/ui'
 import { IconCalendar, IconLogout, IconMenu } from '@/components/ui/icons'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -37,7 +37,7 @@ export function Topbar({ title, onMenuClick }: { title: string; onMenuClick?: ()
         </span>
         {user && (
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-xs font-semibold text-white">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
               {initials(user.name)}
             </span>
             <div className="hidden text-right sm:block">
@@ -46,16 +46,18 @@ export function Topbar({ title, onMenuClick }: { title: string; onMenuClick?: ()
             </div>
           </div>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => logout()}
-          isLoading={isLoggingOut}
-          aria-label="Cerrar sesión"
-        >
-          <IconLogout />
-          <span className="hidden sm:inline">Salir</span>
-        </Button>
+        <Tooltip label="Cerrar sesión">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => logout()}
+            isLoading={isLoggingOut}
+            aria-label="Cerrar sesión"
+          >
+            <IconLogout />
+            <span className="hidden sm:inline">Salir</span>
+          </Button>
+        </Tooltip>
       </div>
     </header>
   )

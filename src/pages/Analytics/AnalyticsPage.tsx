@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChartCard } from '@/components/charts'
 import { GlobalFilterBar } from '@/components/filters'
 import { useAnalytics } from '@/features/analytics/hooks/useAnalytics'
@@ -12,9 +12,20 @@ import { Button, Card, CardBody, CardHeader, PageHeader, QueryStateView } from '
 import { getDisplayErrorMessage } from '@/utils/errors'
 import { formatDate, formatNumber, formatPercent } from '@/utils/format'
 
+/** Paleta oficial HSLV: lima #76B82A · bosque #327531 · añil #29235C */
+const BRAND = { lime: '#76B82A', forest: '#327531', indigo: '#29235C' }
 const GRID_COLOR = '#e3e6ed'
 const AXIS_TEXT_COLOR = '#64647c'
-const BAR_COLOR = '#29235c'
+
+/** Triage: el color comunica urgencia (1 = más crítico). */
+const LEVEL_COLORS: Record<number, string> = {
+  1: '#C0392B',
+  2: '#E1782B',
+  3: '#E3B21F',
+  4: BRAND.lime,
+  5: BRAND.forest,
+}
+const levelColor = (level: unknown) => LEVEL_COLORS[Number(level)] ?? BRAND.indigo
 
 function buildPeriodLabel(from: string | null, to: string | null): string {
   if (from && to) return `${formatDate(from)} — ${formatDate(to)}`
@@ -22,6 +33,65 @@ function buildPeriodLabel(from: string | null, to: string | null): string {
   if (to) return `Hasta ${formatDate(to)}`
   return 'Todo el período disponible'
 }
+
+/* ───────── Piezas visuales ───────── */
+
+function TriageTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: Array<{ payload: { label: string; n: number } }>
+}) {
+  if (!active || !payload?.length) return null
+  const { label, n } = payload[0].payload
+  return (
+    <div className="rounded-xl bg-[#29235C] px-3.5 py-2.5 text-white shadow-xl">
+      <p className="text-xs text-white/70">{label}</p>
+      <p className="text-lg font-semibold leading-tight">
+        {formatNumber(n)} <span className="text-xs font-normal text-white/70">consultas</span>
+      </p>
+    </div>
+  )
+}
+
+/** Lista con barra proporcional: se lee el ranking sin comparar números. */
+function RankedList({ items }: { items: { key: string; label: string; sub?: string; value: number }[] }) {
+  const max = Math.max(...items.map((i) => i.value), 1)
+  return (
+    <ul className="flex flex-col gap-4">
+      {items.map((item) => (
+        <li key={item.key}>
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <div className="min-w-0">
+              <p className="truncate text-ink-900">{item.label}</p>
+              {item.sub && <p className="truncate text-xs text-ink-500">{item.sub}</p>}
+            </div>
+            <span className="shrink-0 font-semibold tabular-nums text-ink-950">{formatNumber(item.value)}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#29235C]/[0.07]">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#327531] to-[#76B82A]"
+              style={{ width: `${Math.max((item.value / max) * 100, 2)}%` }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="px-5 py-4 sm:px-6 sm:py-5">
+      <p className="text-xs text-white/60">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-[#76B82A]">{hint}</p>}
+    </div>
+  )
+}
+
+/* ───────── Página ───────── */
 
 export default function AnalyticsPage() {
   const { filters } = useGlobalFilters()
@@ -47,6 +117,16 @@ export default function AnalyticsPage() {
 
   const triageLevels = (triageQuery.data?.porNivel ?? []).map((row) => ({ ...row, label: `Nivel ${row.level}` }))
 
+  // Resumen calculado con los mismos datos de la página
+  const triageTotal = triageLevels.reduce((sum, row) => sum + Number(row.n), 0)
+  const topLevel = triageLevels.reduce<(typeof triageLevels)[number] | null>(
+    (best, row) => (!best || Number(row.n) > Number(best.n) ? row : best),
+    null,
+  )
+  const topLevelShare = topLevel && triageTotal > 0 ? Math.round((Number(topLevel.n) / triageTotal) * 100) : null
+  const surgeries = surgeriesQuery.data
+  const dash = '—'
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -55,6 +135,25 @@ export default function AnalyticsPage() {
       />
 
       <GlobalFilterBar />
+
+      {/* Resumen */}
+      <section
+        aria-label="Resumen del período"
+        className="relative overflow-hidden rounded-2xl bg-[#29235C] shadow-[0_24px_50px_-28px_rgba(41,35,92,0.9)]"
+      >
+        <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-[#76B82A]/25 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-[#327531]/40 blur-3xl" />
+        <div className="relative grid grid-cols-2 divide-white/10 sm:grid-cols-4 sm:divide-x [&>*:nth-child(-n+2)]:border-b [&>*:nth-child(-n+2)]:border-white/10 sm:[&>*:nth-child(-n+2)]:border-b-0">
+          <Kpi label="Consultas de triage" value={triageQuery.data ? formatNumber(triageTotal) : dash} hint={period} />
+          <Kpi
+            label="Nivel más frecuente"
+            value={topLevel ? topLevel.label : dash}
+            hint={topLevelShare !== null ? `${topLevelShare}% de las consultas` : undefined}
+          />
+          <Kpi label="Programaciones quirúrgicas" value={surgeries ? formatNumber(surgeries.totalSchedules) : dash} hint="Acumulado" />
+          <Kpi label="Cirugías ejecutadas" value={surgeries ? formatPercent(surgeries.verifiable.executedPct) : dash} hint="Sobre las verificables" />
+        </div>
+      </section>
 
       <ChartCard
         title="Consultas por Nivel de Triage"
@@ -66,15 +165,22 @@ export default function AnalyticsPage() {
         isEmpty={triageLevels.length === 0}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={triageLevels} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={GRID_COLOR} vertical={false} />
+          <BarChart data={triageLevels} margin={{ top: 26, right: 12, left: 0, bottom: 0 }} barCategoryGap="22%">
+            <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 5" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={{ stroke: GRID_COLOR }} />
             <YAxis tick={{ fontSize: 12, fill: AXIS_TEXT_COLOR }} tickLine={false} axisLine={false} width={48} />
-            <Tooltip
-              cursor={{ fill: '#eef0f4' }}
-              formatter={(value) => [formatNumber(Number(value)), 'Consultas']}
-            />
-            <Bar dataKey="n" name="Consultas" fill={BAR_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
+            <Tooltip cursor={{ fill: 'rgba(41,35,92,0.06)' }} content={<TriageTooltip />} />
+            <Bar dataKey="n" name="Consultas" radius={[10, 10, 0, 0]} maxBarSize={56}>
+              {triageLevels.map((row) => (
+                <Cell key={row.label} fill={levelColor(row.level)} />
+              ))}
+              <LabelList
+                dataKey="n"
+                position="top"
+                formatter={(value: unknown) => formatNumber(Number(value))}
+                style={{ fontSize: 12, fontWeight: 600, fill: BRAND.indigo }}
+              />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
@@ -92,14 +198,13 @@ export default function AnalyticsPage() {
               isEmpty={(rows) => rows.length === 0}
             >
               {(rows) => (
-                <ul className="flex flex-col divide-y divide-surface-100">
-                  {rows.slice(0, 8).map((row) => (
-                    <li key={row.classification} className="flex items-center justify-between gap-3 py-2 text-sm">
-                      <span className="min-w-0 truncate text-ink-700">{row.classification}</span>
-                      <span className="shrink-0 font-medium text-ink-950">{formatNumber(row.n)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <RankedList
+                  items={rows.slice(0, 8).map((row) => ({
+                    key: String(row.classification),
+                    label: String(row.classification),
+                    value: Number(row.n),
+                  }))}
+                />
               )}
             </QueryStateView>
           </CardBody>
@@ -132,17 +237,14 @@ export default function AnalyticsPage() {
               isEmpty={(rows) => rows.length === 0}
             >
               {(rows) => (
-                <ul className="flex flex-col divide-y divide-surface-100">
-                  {rows.slice(0, 8).map((row) => (
-                    <li key={`${row.area}-${row.specialty}`} className="flex items-center justify-between gap-3 py-2 text-sm">
-                      <div className="min-w-0">
-                        <p className="truncate text-ink-900">{row.specialty}</p>
-                        <p className="truncate text-xs text-ink-500">{row.area}</p>
-                      </div>
-                      <span className="shrink-0 font-medium text-ink-950">{formatNumber(row.quantity)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <RankedList
+                  items={rows.slice(0, 8).map((row) => ({
+                    key: `${row.area}-${row.specialty}`,
+                    label: String(row.specialty),
+                    sub: String(row.area),
+                    value: Number(row.quantity),
+                  }))}
+                />
               )}
             </QueryStateView>
           </CardBody>
@@ -168,41 +270,69 @@ export default function AnalyticsPage() {
         />
         <CardBody>
           <QueryStateView isLoading={surgeriesQuery.isLoading} isError={surgeriesQuery.isError} error={surgeriesQuery.error} data={surgeriesQuery.data} onRetry={surgeriesQuery.refetch}>
-            {(data) => (
-              <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                  <div>
-                    <p className="text-xs text-ink-500">Programaciones</p>
-                    <p className="text-lg font-semibold text-ink-950">{formatNumber(data.totalSchedules)}</p>
+            {(data) => {
+              // Proporción calculada entre ambas cifras, sin depender de si vienen en 0–1 o 0–100
+              const executed = Number(data.verifiable.executedPct)
+              const notExecuted = Number(data.verifiable.notExecutedPct)
+              const sum = executed + notExecuted
+              const executedShare = sum > 0 ? (executed / sum) * 100 : 0
+
+              return (
+                <div className="grid gap-8 lg:grid-cols-2">
+                  <div className="flex flex-col gap-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
+                        <p className="text-xs text-ink-500">Programaciones</p>
+                        <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.totalSchedules)}</p>
+                      </div>
+                      <div className="rounded-xl bg-[#29235C]/[0.04] p-4">
+                        <p className="text-xs text-ink-500">Verificables</p>
+                        <p className="mt-1 text-2xl font-semibold tracking-tight text-[#29235C]">{formatNumber(data.verifiable.total)}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-xs font-medium text-ink-500">Ejecución de lo verificable</p>
+                      <div
+                        role="img"
+                        aria-label={`${formatPercent(data.verifiable.executedPct)} ejecutadas, ${formatPercent(data.verifiable.notExecutedPct)} no ejecutadas`}
+                        className="flex h-3.5 overflow-hidden rounded-full bg-red-100"
+                      >
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#327531] to-[#76B82A]"
+                          style={{ width: `${executedShare}%` }}
+                        />
+                      </div>
+                      <div className="mt-3 flex items-start justify-between gap-4 text-sm">
+                        <div>
+                          <p className="flex items-center gap-2 text-xs text-ink-500">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#327531]" /> Ejecutadas
+                          </p>
+                          <p className="text-lg font-semibold text-[#327531]">{formatPercent(data.verifiable.executedPct)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="flex items-center justify-end gap-2 text-xs text-ink-500">
+                            No ejecutadas <span className="h-2.5 w-2.5 rounded-full bg-red-300" />
+                          </p>
+                          <p className="text-lg font-semibold text-status-critical">{formatPercent(data.verifiable.notExecutedPct)}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
                   <div>
-                    <p className="text-xs text-ink-500">Verificables</p>
-                    <p className="text-lg font-semibold text-ink-950">{formatNumber(data.verifiable.total)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-ink-500">Ejecutadas</p>
-                    <p className="text-lg font-semibold text-status-good">{formatPercent(data.verifiable.executedPct)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-ink-500">No ejecutadas</p>
-                    <p className="text-lg font-semibold text-status-critical">
-                      {formatPercent(data.verifiable.notExecutedPct)}
-                    </p>
+                    <p className="mb-3 text-xs font-medium text-ink-500">Procedimientos más frecuentes</p>
+                    <RankedList
+                      items={data.topProcedures.slice(0, 5).map((proc) => ({
+                        key: String(proc.code),
+                        label: String(proc.name),
+                        value: Number(proc.count),
+                      }))}
+                    />
                   </div>
                 </div>
-                <div>
-                  <p className="mb-2 text-xs font-medium text-ink-500">Procedimientos más frecuentes</p>
-                  <ul className="flex flex-col divide-y divide-surface-100">
-                    {data.topProcedures.slice(0, 5).map((proc) => (
-                      <li key={proc.code} className="flex items-center justify-between gap-3 py-2 text-sm">
-                        <span className="min-w-0 truncate text-ink-700">{proc.name}</span>
-                        <span className="shrink-0 font-medium text-ink-950">{formatNumber(proc.count)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
+              )
+            }}
           </QueryStateView>
         </CardBody>
       </Card>

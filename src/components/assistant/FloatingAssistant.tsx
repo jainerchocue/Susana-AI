@@ -41,17 +41,17 @@ export function FloatingAssistant() {
   const showSuggestions = messages.length === 0
 
   return (
-    <div className="fixed inset-y-0 right-4 z-40 flex flex-col justify-end sm:right-6">
+    <div className="pointer-events-none fixed inset-y-0 right-4 z-40 flex flex-col justify-end sm:right-6">
       {isOpen ? (
         <div
           role="dialog"
           aria-label="Asistente de IA"
           aria-modal="true"
-          className="animate-fade-in flex h-full w-[calc(100vw-2rem)] max-w-[26rem] flex-col self-end overflow-hidden rounded-2xl border border-surface-100 bg-white shadow-floating"
+          className="animate-fade-in pointer-events-auto flex h-full w-[calc(100vw-2rem)] max-w-[26rem] flex-col self-end overflow-hidden rounded-2xl border border-surface-100 bg-white shadow-floating"
         >
           <header className="flex items-center justify-between border-b border-surface-100 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-brand-500 to-accent-500">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600">
                 <IconSparkles className="h-3.5 w-3.5 text-white" aria-hidden="true" />
               </span>
               <div>
@@ -97,7 +97,7 @@ export function FloatingAssistant() {
           onClick={() => setIsOpen(true)}
           aria-label="Abrir asistente"
           aria-haspopup="dialog"
-          className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-glow-brand transition-[background-color,transform] duration-(--duration-fast) ease-snappy hover:-translate-y-0.5 hover:bg-brand-700"
+          className="pointer-events-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-glow-brand transition-[background-color,transform] duration-(--duration-fast) ease-snappy hover:-translate-y-0.5 hover:bg-brand-700"
         >
           <IconSparkles className="h-6 w-6" aria-hidden="true" />
         </button>

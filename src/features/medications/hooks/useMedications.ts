@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from '@/app/store/toastStore'
 import { queryKeys } from '@/constants'
 import { medicationApi } from '@/services/api'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { getDisplayErrorMessage } from '@/utils/errors'
 
 /** Orquesta el listado de medicamentos: pagina (page/limit) y busca por nombre/código. */
@@ -10,13 +11,14 @@ export function useMedications() {
   const [page, setPage] = useState(1)
   const [limit] = useState(10)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search)
 
   const queryClient = useQueryClient()
 
   const queryParams = {
     page,
     limit,
-    search: search === '' ? undefined : search,
+    search: debouncedSearch === '' ? undefined : debouncedSearch,
   }
 
   const medicationsQuery = useQuery({
@@ -40,13 +42,17 @@ export function useMedications() {
     medications: medicationsQuery.data?.data ?? [],
     pagination: medicationsQuery.data?.pagination ?? null,
     isLoading: medicationsQuery.isLoading,
+    isFetching: medicationsQuery.isFetching,
     isError: medicationsQuery.isError,
     error: medicationsQuery.error,
     refetch: medicationsQuery.refetch,
     page,
     limit,
     search,
-    setSearch,
+    setSearch: (value: string) => {
+      setSearch(value)
+      setPage(1)
+    },
     setPage,
     updateStock: (code: string, quantity: number) => updateStockMutation.mutate({ code, quantity }),
     updatingCode: updateStockMutation.isPending ? (updateStockMutation.variables?.code ?? null) : null,

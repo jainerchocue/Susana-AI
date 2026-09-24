@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npx oxlint *)",
+      "Bash(npx vitest *)",
+      "Bash(npm run *)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)",
+      "Read(//d/tmp/**)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

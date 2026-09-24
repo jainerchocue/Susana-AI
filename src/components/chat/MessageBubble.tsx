@@ -96,7 +96,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className="animate-fade-up flex items-start gap-2.5">
       <span
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 shadow-soft"
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 shadow-soft"
         aria-hidden="true"
       >
         <IconSparkles className="h-3.5 w-3.5 text-white" />

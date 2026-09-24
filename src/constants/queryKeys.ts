@@ -26,6 +26,46 @@ export const queryKeys = {
     all: ['alerts'] as const,
     list: (params?: unknown) => ['alerts', 'list', params] as const,
   },
+  imports: {
+    all: ['imports'] as const,
+    list: (params?: unknown) => ['imports', 'list', params] as const,
+    detail: (id: string) => ['imports', 'detail', id] as const,
+  },
+  procedures: {
+    all: ['procedures'] as const,
+    list: (params?: unknown) => ['procedures', 'list', params] as const,
+  },
+  patients: {
+    all: ['patients'] as const,
+    list: (params?: unknown) => ['patients', 'list', params] as const,
+  },
+  admissions: {
+    all: ['admissions'] as const,
+    list: (params?: unknown) => ['admissions', 'list', params] as const,
+  },
+  triages: {
+    all: ['triages'] as const,
+    list: (params?: unknown) => ['triages', 'list', params] as const,
+  },
+  serviceRecords: {
+    all: ['service-records'] as const,
+    list: (params?: unknown) => ['service-records', 'list', params] as const,
+  },
+  surgerySchedules: {
+    all: ['surgery-schedules'] as const,
+    list: (params?: unknown) => ['surgery-schedules', 'list', params] as const,
+  },
+  users: {
+    all: ['users'] as const,
+    list: (params?: unknown) => ['users', 'list', params] as const,
+  },
+  roles: {
+    all: ['roles'] as const,
+    list: (params?: unknown) => ['roles', 'list', params] as const,
+  },
+  permissionsCatalog: {
+    all: ['permissions-catalog'] as const,
+  },
   assistant: {
     all: ['assistant'] as const,
   },

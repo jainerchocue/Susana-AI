@@ -67,6 +67,7 @@ export function useAlertsCenter() {
     alerts: alertsQuery.data?.data ?? [],
     pagination: alertsQuery.data?.pagination ?? null,
     isLoading: alertsQuery.isLoading,
+    isFetching: alertsQuery.isFetching,
     isError: alertsQuery.isError,
     error: alertsQuery.error,
     refetch: alertsQuery.refetch,

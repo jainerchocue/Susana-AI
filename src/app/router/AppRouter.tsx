@@ -12,6 +12,15 @@ const AnalyticsPage = lazy(() => import('@/pages/Analytics/AnalyticsPage'))
 const MedicationsPage = lazy(() => import('@/pages/Medications/MedicationsPage'))
 const ServicesPage = lazy(() => import('@/pages/Services/ServicesPage'))
 const AlertsPage = lazy(() => import('@/pages/Alerts/AlertsPage'))
+const ImportsPage = lazy(() => import('@/pages/Imports/ImportsPage'))
+const ProceduresPage = lazy(() => import('@/pages/Procedures/ProceduresPage'))
+const PatientsPage = lazy(() => import('@/pages/Patients/PatientsPage'))
+const AdmissionsPage = lazy(() => import('@/pages/Admissions/AdmissionsPage'))
+const TriagesPage = lazy(() => import('@/pages/Triages/TriagesPage'))
+const ServiceRecordsPage = lazy(() => import('@/pages/ServiceRecords/ServiceRecordsPage'))
+const SurgerySchedulesPage = lazy(() => import('@/pages/SurgerySchedules/SurgerySchedulesPage'))
+const UsersPage = lazy(() => import('@/pages/Users/UsersPage'))
+const RolesPage = lazy(() => import('@/pages/Roles/RolesPage'))
 const AssistantPage = lazy(() => import('@/pages/Assistant/AssistantPage'))
 const SettingsPage = lazy(() => import('@/pages/Settings/SettingsPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFound/NotFoundPage'))
@@ -73,6 +82,78 @@ const router = createBrowserRouter([
             element: withSuspense(
               <RequirePermission permission={PERMISSIONS.ALERTS_READ}>
                 <AlertsPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.IMPORTS,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.DATA_IMPORT}>
+                <ImportsPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.PATIENTS,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.PATIENTS_READ}>
+                <PatientsPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.ADMISSIONS,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.SERVICES_READ}>
+                <AdmissionsPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.TRIAGES,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.SERVICES_READ}>
+                <TriagesPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.SERVICE_RECORDS,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.SERVICES_READ}>
+                <ServiceRecordsPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.SURGERY_SCHEDULES,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.SURGERIES_READ}>
+                <SurgerySchedulesPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.USERS,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.USERS_READ}>
+                <UsersPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.ROLES,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.ROLES_READ}>
+                <RolesPage />
+              </RequirePermission>,
+            ),
+          },
+          {
+            path: ROUTES.PROCEDURES,
+            element: withSuspense(
+              <RequirePermission permission={PERMISSIONS.SERVICES_READ}>
+                <ProceduresPage />
               </RequirePermission>,
             ),
           },

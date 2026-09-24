@@ -15,20 +15,18 @@ export interface DataTableColumn<T> {
   className?: string
 }
 
-export interface DataTableProps<T> {
+interface DataTableBaseProps<T> {
   columns: DataTableColumn<T>[]
   data: T[]
   getRowId: (row: T) => string
   isLoading?: boolean
+  /** Refetch en segundo plano (p. ej. al cambiar un filtro) — distinto de `isLoading`, que es solo la carga inicial. */
+  isFetching?: boolean
   isError?: boolean
   error?: unknown
   onRetry?: () => void
   emptyMessage?: string
   emptyDescription?: string
-  page: number
-  pageSize: number
-  total: number
-  onPageChange: (page: number) => void
   sortBy?: string
   sortDirection?: SortDirection
   onSortChange?: (columnId: string) => void
@@ -36,6 +34,26 @@ export interface DataTableProps<T> {
   onSearchChange?: (value: string) => void
   searchPlaceholder?: string
 }
+
+interface OffsetPaginationProps {
+  paginationMode?: 'offset'
+  page: number
+  pageSize: number
+  total: number
+  onPageChange: (page: number) => void
+}
+
+interface CursorPaginationProps {
+  paginationMode: 'cursor'
+  hasNext: boolean
+  hasPrev: boolean
+  onNext: () => void
+  onPrev: () => void
+  /** Página actual (1-indexada) — la paginación por cursor no conoce el total, pero sí en qué página va. */
+  currentPage?: number
+}
+
+export type DataTableProps<T> = DataTableBaseProps<T> & (OffsetPaginationProps | CursorPaginationProps)
 
 const SKELETON_ROWS = 5
 
@@ -57,34 +75,47 @@ function SortIndicator({ direction }: { direction: 'ascending' | 'descending' | 
   )
 }
 
-export function DataTable<T>({
-  columns,
-  data,
-  getRowId,
-  isLoading = false,
-  isError = false,
-  error,
-  onRetry,
-  emptyMessage,
-  emptyDescription,
-  page,
-  pageSize,
-  total,
-  onPageChange,
-  sortBy,
-  sortDirection,
-  onSortChange,
-  searchValue,
-  onSearchChange,
-  searchPlaceholder,
-}: DataTableProps<T>) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const isFirstPage = page <= 1
-  const isLastPage = page >= totalPages
-  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const rangeEnd = total === 0 ? 0 : Math.min(page * pageSize, total)
+export function DataTable<T>(props: DataTableProps<T>) {
+  const {
+    columns,
+    data,
+    getRowId,
+    isLoading = false,
+    isFetching = false,
+    isError = false,
+    error,
+    onRetry,
+    emptyMessage,
+    emptyDescription,
+    sortBy,
+    sortDirection,
+    onSortChange,
+    searchValue,
+    onSearchChange,
+    searchPlaceholder,
+  } = props
+
+  const isRefetching = isFetching && !isLoading
+
+  const isCursor = props.paginationMode === 'cursor'
+  const totalPages = !isCursor ? Math.max(1, Math.ceil(props.total / props.pageSize)) : 0
+  const isFirstPage = isCursor ? !props.hasPrev : props.page <= 1
+  const isLastPage = isCursor ? !props.hasNext : props.page >= totalPages
+  const rangeStart = !isCursor && props.total > 0 ? (props.page - 1) * props.pageSize + 1 : 0
+  const rangeEnd = !isCursor && props.total > 0 ? Math.min(props.page * props.pageSize, props.total) : 0
+  const isEmpty = data.length === 0
 
   const showSearch = onSearchChange !== undefined
+
+  function goPrev() {
+    if (isCursor) props.onPrev()
+    else props.onPageChange(props.page - 1)
+  }
+
+  function goNext() {
+    if (isCursor) props.onNext()
+    else props.onPageChange(props.page + 1)
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -100,10 +131,15 @@ export function DataTable<T>({
         />
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-surface-100 shadow-soft">
-        <table role="table" className="w-full min-w-120 border-collapse text-left text-sm">
+      <div className="relative overflow-x-auto rounded-xl border border-surface-100 shadow-soft">
+        {isRefetching && (
+          <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-surface-100" role="status" aria-label="Actualizando resultados">
+            <div className="h-full w-1/3 animate-loading-bar rounded-full bg-brand-500" />
+          </div>
+        )}
+        <table role="table" className={cn('w-full min-w-120 border-collapse text-left text-sm', isRefetching && 'opacity-60 transition-opacity duration-(--duration-base)')}>
           <thead>
-            <tr className="border-b border-surface-100 bg-surface-50">
+            <tr className="border-b border-surface-100 bg-surface-100/50">
               {columns.map((column) => {
                 const isSortable = Boolean(column.sortable && onSortChange)
                 const ariaSort = getAriaSort(column, sortBy, sortDirection)
@@ -159,7 +195,7 @@ export function DataTable<T>({
               </tr>
             )}
 
-            {!isLoading && !isError && data.length === 0 && (
+            {!isLoading && !isError && isEmpty && (
               <tr>
                 <td colSpan={columns.length} className="px-4 py-2">
                   <EmptyState
@@ -194,33 +230,24 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {!isLoading && !isError && (
+      {!isLoading && !isError && !isEmpty && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-ink-500">
-            {total === 0
-              ? 'Sin resultados'
-              : `Mostrando ${rangeStart}-${rangeEnd} de ${total} registros`}
+            {isCursor ? ' ' : `Mostrando ${rangeStart}-${rangeEnd} de ${props.total} registros`}
           </p>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => onPageChange(page - 1)}
-              disabled={isFirstPage}
-            >
+            <Button type="button" size="sm" variant="secondary" onClick={goPrev} disabled={isFirstPage}>
               Anterior
             </Button>
-            <span className="px-1 text-xs tabular-nums text-ink-500">
-              Página {page} de {totalPages}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => onPageChange(page + 1)}
-              disabled={isLastPage}
-            >
+            {!isCursor && (
+              <span className="px-1 text-xs tabular-nums text-ink-500">
+                Página {props.page} de {totalPages}
+              </span>
+            )}
+            {isCursor && props.currentPage && (
+              <span className="px-1 text-xs tabular-nums text-ink-500">Página {props.currentPage}</span>
+            )}
+            <Button type="button" size="sm" variant="secondary" onClick={goNext} disabled={isLastPage}>
               Siguiente
             </Button>
           </div>
