@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -106,7 +107,9 @@ async def handle_ask(
 
         series, ctx = extract_series_from_result(serie_resultado)
         if series and ctx.get("date_field"):
-            forecast_text, forecast_method = Predictor().forecast_facts(
+            # RF es CPU-bound: fuera del event loop para no congelar uvicorn
+            forecast_text, forecast_method = await asyncio.to_thread(
+                Predictor().forecast_facts,
                 series,
                 label=_etiqueta_intent(intent),
                 context=ctx,
