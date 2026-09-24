@@ -4,20 +4,15 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.api import api_router
 from app.api.routes import gateway
 from app.config.settings import settings
-
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
-AGENT_ROOT = Path(__file__).resolve().parents[1]
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -59,11 +54,8 @@ app.add_middleware(
 # Contrato oficial con Node (Susana-AI)
 app.include_router(gateway.router)
 
-# Rutas legacy / demo local
+# Rutas internas opcionales (analyze/interpret) — el producto usa /v1/ask
 app.include_router(api_router)
-
-if STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.middleware("http")
@@ -83,27 +75,4 @@ async def root():
             "health": "GET /health",
             "ask": "POST /v1/ask",
         },
-        "demo_flujo": "/flujo",
-        "legacy": [
-            "GET /internal/agent/health",
-            "POST /internal/agent/analyze",
-            "POST /internal/agent/interpret",
-        ],
     }
-
-
-@app.get("/flujo")
-async def flujo_demo():
-    """UI HTML local (demo). El producto real entra por React → Node → este agente."""
-    path = STATIC_DIR / "flujo.html"
-    if not path.exists():
-        return JSONResponse(status_code=404, content={"detail": "flujo.html no encontrado"})
-    return FileResponse(path)
-
-
-@app.get("/guia")
-async def guia_codigo():
-    path = AGENT_ROOT / "GUIA_CODIGO.md"
-    if not path.exists():
-        return JSONResponse(status_code=404, content={"detail": "GUIA_CODIGO.md no encontrado"})
-    return FileResponse(path, media_type="text/markdown; charset=utf-8")

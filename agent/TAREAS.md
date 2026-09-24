@@ -1,15 +1,12 @@
-# Tareas AI — dentro de Susana-AI/agent
+# Tareas AI
 
 ## Hecho
-- Carpeta `Susana-AI/agent/` integrada al monorepo Node
-- Contrato `GET /health` + `POST /v1/ask`
-- Callback a Node `:3001/internal/agent/query`
-- Recommender enchufado en la respuesta `answer`
-- `.venv` / `.env` / `hospital.db` en `.gitignore`
+- Integración en `Susana-AI/agent`
+- Contrato `/health` + `/v1/ask`
+- Recomendaciones en la respuesta
+- Limpieza: sin tests/demo HTML (`static`, `tests`, `demo-execute`)
 
-## Siguiente (equipo AI)
-1. Copiar `agent/.env.example` → `agent/.env` y alinear claves con Node
-2. Levantar Node + agente y probar una pregunta vía assistant
-3. Mejorar planificador DSL / LLM sobre el catálogo
-4. Predicción (`predictor.py`)
-5. Frontend React cuando exista → no depende de `/flujo`
+## Siguiente
+1. Alinear `.env` con Node y probar punta a punta con el frontend
+2. Mejorar planificador DSL / LLM
+3. Predicción (`predictor.py`)
