@@ -316,7 +316,8 @@ async def _con_openrouter(brief: AnswerBrief) -> str | None:
             },
         ],
         max_tokens=420,
-    )    if text and _cifras_ok(brief, text):
+    )
+    if text and _cifras_ok(brief, text):
         return text[:_MAX_ANSWER]
     if text:
         logger.warning("OpenRouter rechazado por grounding; uso plantilla")
