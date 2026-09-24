@@ -267,31 +267,33 @@ class Predictor:
             cambio_pct = ((proy - ultimo) / ultimo) * 100.0
 
         horizon_txt = ", ".join(f"{v:.0f}" for v in futuros)
-        feats_txt = ", ".join(top_feats) if top_feats else "rezagos recientes"
-
+        # Mensaje para el chat: sin jerga (MAE, lag_*, etc.)
         partes = [
-            f"Anticipación con Random Forest sobre {len(series)} periodos de {label}: "
-            f"último valor {ultimo:.0f}; próximos {_HORIZON} periodos estimados en {horizon_txt}."
+            f"Para los próximos {_HORIZON} periodos de {label}, la proyección "
+            f"(Random Forest, {len(series)} periodos históricos) estima {horizon_txt}. "
+            f"El último valor observado fue {ultimo:.0f}."
         ]
         if cambio_pct is not None:
-            sentido = "alza" if cambio_pct >= 0 else "baja"
-            partes.append(
-                f"Respecto al último punto, el modelo apunta a una {sentido} "
-                f"de ~{abs(cambio_pct):.0f}% (tendencia de fondo: {tendencia})."
-            )
-        partes.append(
-            f"La precisión interna (MAE en holdout) es ~{mae:.1f}; "
-            f"pesan más {feats_txt}."
-        )
+            if abs(cambio_pct) < 2:
+                partes.append("Respecto al último punto, se mantiene prácticamente estable.")
+            else:
+                sentido = "alza" if cambio_pct >= 0 else "baja"
+                partes.append(
+                    f"Respecto al último punto, apunta a una {sentido} "
+                    f"de ~{abs(cambio_pct):.0f}% (tendencia de fondo: {tendencia})."
+                )
+        else:
+            partes.append(f"Tendencia de fondo: {tendencia}.")
 
         peak = context.get("peak_day")
         by_wd = context.get("by_weekday") or {}
         if peak and peak in by_wd:
             partes.append(
-                f"En el histórico, el día con más carga es el {peak} "
+                f"En el histórico, el día con más carga suele ser el {peak} "
                 f"(promedio ~{by_wd[peak]:.0f})."
             )
 
+        _ = (top_feats, mae)  # métricas internas; no van al chat
         return " ".join(partes)
 
     def _message_tendencia(

@@ -29,7 +29,8 @@ def root_cause_hint(intent: str, rows: list[dict[str, Any]], question: str) -> s
             "más alto",
         )
     )
-    if not quiere and intent not in {"DEMAND", "WAIT_TIME", "OCCUPANCY"}:
+    # Solo si la pregunta pide explicación/comparación (no en toda ocupación)
+    if not quiere:
         return None
     if len(rows) < 2:
         return None

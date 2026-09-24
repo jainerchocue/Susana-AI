@@ -191,9 +191,40 @@ def build_answer_brief(
     dims = _dim_keys(first)
     metrics = _metric_keys(first)
 
+    # Ordenar por métrica desc para que "mayor" coincida con el ranking
+    if metrics and len(clean) > 1:
+        mkey = metrics[0]
+
+        def _sort_key(fila: dict[str, Any]) -> float:
+            n = safe_number(fila.get(mkey))
+            return float(n) if n is not None else -1.0
+
+        clean = sorted(clean, key=_sort_key, reverse=True)
+        first = clean[0]
+
     points: list[FactPoint] = []
     ranking: list[str] = []
     headline: str | None = None
+
+    q_low = question.lower()
+    pregunta_proyeccion = any(
+        k in q_low
+        for k in (
+            "evolucion",
+            "evolución",
+            "evolucionar",
+            "próxim",
+            "proxim",
+            "predic",
+            "anticip",
+            "futur",
+            "tendencia",
+            "cómo irá",
+            "como ira",
+            "cómo va a",
+            "como va a",
+        )
+    )
 
     # Ranking / breakdown (varias filas con dimensión)
     if len(clean) > 1 and dims:
@@ -210,7 +241,15 @@ def build_answer_brief(
         if ranking:
             top_name = clean[0].get(dim)
             top_metric = _fmt_val(clean[0].get(metric)) if metric else None
-            if top_metric is not None:
+            if pregunta_proyeccion and forecast:
+                # La pregunta pide evolución: el dato principal es la proyección
+                headline = (
+                    f"Proyección de {ds_label} para los próximos periodos "
+                    f"(contexto: mayor {_label(dim)} actual «{top_name}»"
+                    + (f" con {top_metric}" if top_metric else "")
+                    + ")."
+                )
+            elif top_metric is not None:
                 headline = (
                     f"El mayor valor en {_label(dim)} es «{top_name}» "
                     f"con {_label(metric)} = {top_metric} "
