@@ -1,0 +1,7 @@
+TipoDocumento|IdPaciente|NombrePaciente|FechaNacimiento|Sexo|Asegurador|Regimen|Departamento|Municipio|Zona
+CC|1001|AB|1990-06-15|Masculino|EPS SURA|Contributivo|CAUCA|POPAYAN|Urbana
+CC|1002|CD|1985-03-20|Femenino|NUEVA EPS|Subsidiado|CAUCA|POPAYAN|Urbana
+TI|1003|EF|2010-11-02|Femenino|SALUD VIDA|Contributivo|VALLE|CALI|Rural
+CC|1004|GH|1975-01-01|Masculino|EPS SURA|Contributivo|CAUCA|POPAYAN|Urbana
+CC|1005|IJ|2000-07-07|Femenino|NUEVA EPS|Contributivo|CAUCA|POPAYAN|Urbana
+CC|1006|KL|1995-09-09|Masculino|SALUD VIDA|Subsidiado|CAUCA|POPAYAN|Urbana

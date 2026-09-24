@@ -1,0 +1,54 @@
+# Entorno local completo: API + PostgreSQL + Redis.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hospital
+    ports: ['5432:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    # >= 6.2: Better Auth necesita GETDEL para consumir tokens de un solo uso
+    # en una sola operacion.
+    image: redis:7-alpine
+    # appendonly: el rate limit y la idempotencia sobreviven a un reinicio.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports: ['6379:6379']
+    volumes: ['redisdata:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      APP_URL: http://localhost:5173
+      API_URL: http://localhost:3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hospital?schema=public&connection_limit=10
+      REDIS_URL: redis://redis:6379
+      MAIL_ENABLED: 'false'
+      MAIL_FROM_EMAIL: no-reply@plantilla.dev
+      TRUST_PROXY: '1'
+    # BETTER_AUTH_SECRET y el resto de secretos vienen de aqui: sin este
+    # archivo el contenedor no arranca, que es lo que se quiere.
+    env_file: [.env]
+    ports: ['3000:3000']
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

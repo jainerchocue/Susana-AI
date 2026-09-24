@@ -1,0 +1,18 @@
+# Sin esto, el .env con secretos acaba dentro de la imagen.
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+.git
+.github
+tests
+# Skills de agentes y scripts de CI: no se ejecutan en runtime.
+.agents
+scripts
+*.log
+*.md
+!README.md
+.vscode
+.idea

@@ -1,0 +1,539 @@
+// Fuente de verdad del modelo de datos.
+// Regla: nunca escribir SQL suelto ni tocar la BD fuera de Prisma.
+//
+// Los modelos User / Session / Account / Verification / TwoFactor los exige
+// Better Auth: sus nombres y campos NO son libres. Para regenerarlos:
+//   npx @better-auth/cli generate --config src/core/auth/auth.ts
+// Los modelos de RBAC y auditoria son nuestros y Better Auth no los conoce.
+
+generator client {
+  provider        = "prisma-client-js"
+  // Resuelve las relaciones anidadas con JOIN en vez de consultas separadas:
+  // recorta de ~4 a 1 el numero de round-trips de `authenticate` (auditoria A-05).
+  // relationJoins: resuelve relaciones anidadas con LATERAL JOIN.
+  // postgresqlExtensions: permite declarar pg_trgm y sus indices AQUI, que es
+  // lo que impide que el proximo `prisma migrate dev` los borre por no
+  // conocerlos. Un indice GIN escrito a mano en un .sql duro exactamente una
+  // migracion: la siguiente lo elimina como "deriva".
+  previewFeatures = ["relationJoins", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identidad (Better Auth)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+
+  // ─── Campos que exige Better Auth ─────────────────────────────────────────
+  name             String
+  email            String   @unique
+  emailVerified    Boolean  @default(false)
+  image            String?
+  twoFactorEnabled Boolean? @default(false)
+
+  // ─── Campos propios del dominio (user.additionalFields) ───────────────────
+  /// Estado administrativo. Solo lo escribe users.service, nunca el cliente.
+  status    UserStatus @default(ACTIVE)
+  /// Borrado logico: las entidades con historial no se borran fisicamente.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ─── Relaciones de Better Auth ────────────────────────────────────────────
+  sessions  Session[]
+  accounts  Account[]
+  twoFactor TwoFactor[]
+
+  // ─── Relaciones nuestras ──────────────────────────────────────────────────
+  roles UserRole[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  // GIN de trigramas: `ILIKE '%termino%'` inhabilita cualquier B-tree por el
+  // comodin a la izquierda y degenera en Seq Scan de la tabla (auditoria C-06).
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("users")
+}
+
+/// Sesion de Better Auth. `token` es el valor que viaja en la cookie o como
+/// Bearer; la libreria lo genera y lo compara, nosotros no lo tocamos.
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  token     String   @unique
+  userId    String   @db.Uuid
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Credencial o proveedor vinculado. Con `providerId = "credential"` guarda el
+/// hash de la contraseña en `password`: por eso User ya no tiene passwordHash.
+model Account {
+  id                    String    @id @default(uuid()) @db.Uuid
+  accountId             String
+  providerId            String
+  userId                String    @db.Uuid
+  /// Hash scrypt generado por core/security/password.ts (con su semaforo).
+  password              String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+/// Tokens de un solo uso: verificacion de correo y reset de contraseña.
+/// Better Auth guarda aqui el valor hasheado; el plano solo viaja por email.
+model Verification {
+  id         String   @id @default(uuid()) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([identifier])
+  @@index([expiresAt])
+  @@map("verifications")
+}
+
+/// Segundo factor TOTP. `secret` y `backupCodes` los cifra Better Auth con
+/// BETTER_AUTH_SECRET: nunca salen en claro de la libreria.
+/// `failedVerificationCount` + `lockedUntil` son el bloqueo por fuerza bruta
+/// del segundo factor, que la implementacion anterior no tenia (auditoria A-16).
+model TwoFactor {
+  id                      String    @id @default(uuid()) @db.Uuid
+  secret                  String
+  backupCodes             String
+  userId                  String    @db.Uuid
+  verified                Boolean?  @default(false)
+  failedVerificationCount Int?      @default(0)
+  lockedUntil             DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("two_factors")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RBAC (nuestro: Better Auth no lo gestiona)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
+  /// Los roles de sistema son inmutables por API: su definicion vive en
+  /// core/rbac/permissions.ts y se aplica con el seed.
+  isSystem    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Formato obligatorio: "recurso:accion" (ej. "users:read"). "*" = todo.
+  action      String  @unique
+  /// Agrupador para UI (ej. "users", "roles").
+  group       String
+  description String?
+
+  createdAt DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@index([group])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  assignedBy String?  @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auditoria
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Registro append-only de toda accion sensible.
+/// La migracion instala un trigger que prohibe UPDATE y DELETE: un atacante con
+/// acceso a la aplicacion no debe poder borrar sus huellas (auditoria A-12).
+model AuditLog {
+  id         String  @id @default(uuid()) @db.Uuid
+  /// Sin clave foranea a proposito: el rastro es un hecho inmutable y debe
+  /// sobrevivir al borrado del actor. Una FK con ON DELETE SET NULL exigiria
+  /// UPDATE sobre esta tabla, que el trigger append-only prohibe.
+  actorId    String? @db.Uuid
+  /// Copia del correo en el momento del hecho. La rellena core/audit/audit.ts:
+  /// users.remove() sobrescribe el correo al borrar, asi que sin esta copia el
+  /// rastro quedaria en un UUID huerfano.
+  actorEmail String?
+  /// Verbo canonico: "user.roles.set", "auth.login.success".
+  action     String
+  targetType String?
+  targetId   String? @db.Uuid
+  /// Detalle estructurado. Nunca contraseñas, tokens ni secretos.
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([targetId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alertas (motor de reglas, T3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AlertSeverity {
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+/// Alerta operativa generada por el motor de reglas a partir de metricas del
+/// HIS. `type` y `scope` son texto y no enum: sus valores validos viven en
+/// `modules/alerts/alerts.constants.ts` (ALERT_TYPES/ALERT_SCOPES) y se
+/// validan en el codigo, no en la BD, porque el catalogo puede crecer en la
+/// fase B sin necesitar una migracion.
+model Alert {
+  id        String        @id @default(uuid()) @db.Uuid
+  /// Uno de ALERT_TYPES (validado en codigo).
+  type      String
+  severity  AlertSeverity
+  status    AlertStatus   @default(OPEN)
+  /// Uno de ALERT_SCOPES (validado en codigo).
+  scope     String
+  /// Codigo HIS del recurso (servicio, medicamento...). Sin FK: los datos del
+  /// HIS se importan aparte y llegan como texto plano.
+  scopeId   String?
+  metric    String
+  value     Float
+  threshold Float
+  message   String
+
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  acknowledgedBy String?   @db.Uuid
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ponytail: sin indice unico parcial sobre (type, scopeId) para OPEN/ACKNOWLEDGED;
+  // basta con que solo un evaluador corra a la vez (el job de sincronizacion de
+  // la fase B). Revisar si en algun momento hay mas de un evaluador concurrente.
+  @@index([status, severity, lastSeenAt(sort: Desc)])
+  @@index([type, scopeId, status])
+  @@index([scope, status])
+  @@map("alerts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIS (fase B, T6): datos reales del hospital, de solo lectura para la API.
+// Los importa `src/scripts/import-data.ts` desde data/raw/*.txt. Nunca se
+// escriben desde un controlador: son un volcado periodico del sistema fuente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Paciente. `NombrePaciente` (iniciales) no se importa: minimizacion de datos
+/// (B0). El id es el `IdPaciente` del HIS, no un autoincrement nuestro: es la
+/// clave natural que usan Ingresos y Triage para referenciarlo.
+model Patient {
+  id           Int      @id
+  documentType String
+  birthDate    DateTime @db.Date
+  sex          String
+  insurer      String
+  regime       String
+  department   String
+  municipality String
+  zone         String
+
+  admissions Admission[]
+  triages    Triage[]
+
+  @@map("his_patients")
+}
+
+/// Triage de urgencias. 1.675 filas del extracto llegan totalmente vacias (una
+/// por cada ingreso sin triage) y se saltan en la importacion: por eso el id
+/// (`OidTriage`) no es correlativo. `patientId` es opcional porque 4 filas
+/// referencian un paciente que no esta en el extracto (huerfano real,
+/// verificado): se guardan con `patientId = null` y un aviso en el resumen, en
+/// vez de descartar el triage entero.
+model Triage {
+  id              Int      @id
+  triagedAt       DateTime @db.Timestamptz(3)
+  systolic        Int?
+  diastolic       Int?
+  heartRate       Int?
+  respiratoryRate Int?
+  temperature     Float?
+  patientId       Int?
+  /// Codigo interno del HIS (25 valores). NO es el nivel de triage.
+  code            String
+  /// Texto completo, p.ej. "PEDIATRIA DIFERIDO CONSULTORIO UNO-TRIAGE 3 (VERDE)".
+  classification  String
+  /// Extraido de `classification` con /TRIAGE\s*([1-5])/. En el extracto real
+  /// solo aparecen niveles 1 a 4.
+  level           Int?
+
+  patient   Patient?   @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  admission Admission?
+
+  @@index([triagedAt])
+  @@index([level])
+  @@map("his_triages")
+}
+
+/// Ingreso hospitalario. No hay fecha de egreso en el HIS: la estancia se
+/// estima con los campos "derivados" (ver mas abajo), que llena una pasada de
+/// SQL estatico al final de la importacion, no la carga fila a fila.
+model Admission {
+  id             Int       @id
+  consecutive    Int
+  patientId      Int
+  admissionClass String
+  entryRoute     String
+  /// Normalizado: colapsa variantes que solo difieren en mayusculas
+  /// ("Accidente en el Hogar" / "Accidente en el hogar") a la forma mas
+  /// frecuente en el extracto completo.
+  riskType       String
+  admittedAt     DateTime  @db.Timestamptz(3)
+  hospitalizedAt DateTime? @db.Timestamptz(3)
+  /// FK opcional a Triage: 1.675 ingresos no tienen triage. @unique porque la
+  /// relacion es 1:1 desde el lado del ingreso.
+  triageId       Int?      @unique
+  bedCode        String
+  bedName        String
+  /// `NombreGrupoCama` del HIS: la unidad (URGENCIAS, HOSPITALIZACION, ...).
+  unit           String
+  subunit        String
+  /// `NombreCama` contiene "VIRTUAL". Las camas virtuales cuentan en el censo
+  /// pero no en la capacidad fisica: por eso la ocupacion puede superar el 100%.
+  virtualBed     Boolean
+  diagnosisCode  String?
+  diagnosisName  String?
+
+  // ─── Derivados: los calcula una UPDATE de SQL estatico al final del import ──
+  /// Primera atencion (Atencion.FechaAtencion) de este ingreso, si la tuvo.
+  firstCareAt    DateTime? @db.Timestamptz(3)
+  /// max(FechaPrestacion) entre servicios y medicamentos del ingreso: sin
+  /// fecha de egreso, es la mejor aproximacion al fin de la estancia.
+  lastActivityAt DateTime? @db.Timestamptz(3)
+  /// Copia de Triage.level, para no hacer JOIN en cada consulta de analitica.
+  triageLevel    Int?
+  /// Minutos entre el triage y la primera atencion. Null sin triage o sin atencion.
+  waitMinutes    Float?
+  /// Horas entre el ingreso y `lastActivityAt`. Null sin actividad registrada.
+  stayHours      Float?
+  /// Snapshot de Patient en el momento del ingreso (evita JOIN en analitica).
+  patientSex     String?
+  patientRegime  String?
+  patientZone    String?
+  patientAge     Int?
+
+  patient   Patient              @relation(fields: [patientId], references: [id])
+  triage    Triage?              @relation(fields: [triageId], references: [id])
+  services  ServiceRecord[]
+  dispenses MedicationDispense[]
+
+  @@index([admittedAt])
+  @@index([unit, admittedAt])
+  @@index([lastActivityAt])
+  @@index([triageLevel])
+  @@map("his_admissions")
+}
+
+/// Catalogo de procedimientos/servicios (CUPS), derivado de Servicios.txt: el
+/// nombre es el mas frecuente entre las filas que comparten codigo (el HIS no
+/// trae un maestro aparte).
+model Procedure {
+  code String @id
+  name String
+
+  services ServiceRecord[]
+
+  @@map("his_procedures")
+}
+
+/// Catalogo de medicamentos/insumos, derivado de MedicamentoInsumo.txt.
+/// `kind` distingue dispositivo medico ("insumo", codigos con prefijo "DM") de
+/// medicamento ("medicamento", el resto: ATC, "NP...").
+model Medication {
+  code String @id
+  name String
+  /// 'medicamento' | 'insumo'
+  kind String
+
+  dispenses MedicationDispense[]
+
+  @@index([kind])
+  @@map("his_medications")
+}
+
+/// Linea de servicio prestado (Servicios.txt). El id es `OidS`, un
+/// correlativo global del propio extracto (verificado unico 1..582357).
+model ServiceRecord {
+  id          Int      @id
+  admissionId Int
+  code        String
+  quantity    Int
+  providedAt  DateTime @db.Timestamptz(3)
+  areaCode    String
+  area        String
+  specialty   String
+
+  admission Admission @relation(fields: [admissionId], references: [id])
+  procedure Procedure @relation(fields: [code], references: [code])
+
+  @@index([admissionId])
+  @@index([providedAt])
+  @@index([area, providedAt])
+  @@index([code])
+  @@map("his_service_records")
+}
+
+/// Dispensacion de medicamento/insumo (MedicamentoInsumo.txt). El id es
+/// `OidMI`, correlativo global del extracto (verificado unico 1..579465).
+/// No hay stock en el HIS: `MedicationStock` es una tabla aparte que llena
+/// FARMACIA por API (fase B, T9).
+model MedicationDispense {
+  id          Int      @id
+  admissionId Int
+  code        String
+  quantity    Int
+  dispensedAt DateTime @db.Timestamptz(3)
+  area        String
+  specialty   String
+
+  admission  Admission  @relation(fields: [admissionId], references: [id])
+  medication Medication @relation(fields: [code], references: [code])
+
+  @@index([code, dispensedAt])
+  @@index([dispensedAt])
+  @@index([admissionId])
+  @@map("his_medication_dispenses")
+}
+
+/// Programacion de cirugia. SIN FK: en el extracto, `IdPaciente` cae fuera del
+/// extracto de Paciente en 8.554 de 13.046 filas y `OidIngreso` esta vacio en
+/// 2.404 y fuera del extracto en 7.365 mas (verificado): las FK del
+/// diccionario no se cumplen contra los datos reales, asi que no se imponen.
+/// `executed` lo calcula la misma UPDATE de SQL estatico que los derivados de
+/// Admission, comparando contra ServiceRecord.
+model SurgerySchedule {
+  id             Int    @id @default(autoincrement())
+  scheduleNumber String
+  patientId      Int
+  admissionId    Int?
+  procedureCode  String
+  /// 'si' | 'no' | 'desconocido' (desconocido = sin ingreso verificable en el extracto)
+  executed       String
+
+  /// Clave natural de la fila. Sin ella, un reimport duplicaria las 12.770
+  /// cirugias (no hay PK natural: `id` es autoincrement). Es lo que hace que
+  /// `createMany({ skipDuplicates: true })` sea idempotente aqui tambien.
+  /// ponytail: Postgres no trata dos NULL de `admissionId` como iguales, asi
+  /// que las ~2.400 filas con `OidIngreso` vacio no quedan protegidas por este
+  /// indice en un reimport (si se duplicaran, se volverian a insertar). El
+  /// import ya las dedupe en memoria en la CARGA en curso; solo falla el caso
+  /// de relanzar el importador una segunda vez en produccion. Si eso llega a
+  /// pasar, arreglarlo con una columna de deduplicacion NOT NULL en vez de esta
+  /// unicidad compuesta.
+  @@unique([scheduleNumber, patientId, admissionId, procedureCode])
+  @@index([scheduleNumber])
+  @@index([admissionId])
+  @@index([executed])
+  @@map("his_surgery_schedules")
+}
+
+/// Stock de medicamento/insumo. Lo escribe FARMACIA por API (T9), no el
+/// importador. Sin FK a Medication: FARMACIA puede registrar stock de un
+/// codigo que aun no tiene dispensaciones en el extracto.
+model MedicationStock {
+  code      String   @id
+  quantity  Int
+  updatedBy String?  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("medication_stock")
+}

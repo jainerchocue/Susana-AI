@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push: { branches: [main, master] }
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Por defecto solo lectura: un step comprometido no puede escribir en el repo.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  calidad:
+    name: Lint, tipos y tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+        ports: ['5432:5432']
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+        ports: ['6379:6379']
+
+    env:
+      NODE_ENV: test
+      APP_URL: http://localhost:5173
+      API_URL: http://localhost:3000
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test?schema=public
+      REDIS_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-secret-0123456789abcdefghijklmnopqrstuvwxyz-ABCDEF
+      MAIL_ENABLED: 'false'
+      MAIL_FROM_EMAIL: no-reply@test.local
+      REQUIRE_VERIFIED_EMAIL: 'false'
+      # HaveIBeenPwned falla cerrado: sin red saliente tumbaria cada registro.
+      PASSWORD_BREACH_CHECK: 'false'
+      SEED_ADMIN_PASSWORD: CiAdmin123!seguro
+      LOG_LEVEL: silent
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: npm }
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed:dev
+      - run: npm run test:coverage
+
+      - name: Cobertura
+        uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage, path: coverage/ }
+
+  seguridad:
+    name: Dependencias y secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+
+      # Gate: una CVE alta en dependencias de PRODUCCION rompe el build.
+      #
+      # `npm audit` audita el lockfile entero, así que una CVE en el CLI de
+      # Prisma o en vitest —que nunca se despliegan— dejaba el gate en rojo
+      # permanente. Un gate que siempre falla se acaba desactivando. Esto
+      # distingue lo que se despliega de lo que no.
+      - name: CVE en dependencias de producción
+        run: node scripts/audit-prod.mjs
+
+      # Informativo: deja constancia de todo, incluidas las de desarrollo.
+      - name: Auditoría completa (no bloquea)
+        run: npm audit || true
+
+      - name: Secretos en el repositorio
+        # Fijada por SHA: una action con @master o incluso @v3 puede cambiar de
+        # contenido bajo el mismo puntero y ejecuta con acceso al repo.
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+
+  imagen:
+    name: Construir y escanear la imagen
+    runs-on: ubuntu-latest
+    needs: [calidad]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with: { context: ., push: false, load: true, tags: 'plantilla-backend:ci' }
+
+      - name: Trivy
+        # Antes iba con @master: cualquier commit en esa rama entraba en el
+        # pipeline sin revisión. Fijada por SHA.
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: 'plantilla-backend:ci'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
