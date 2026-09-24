@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from 'express';
 import { AlertStatus } from '@prisma/client';
 import { ok } from '../../core/http/api-response';
+import { redondearDecimales } from '../../core/http/numero';
 import { fechaReferencia, resolverPeriodo } from '../his/his.periodo';
 import { alcancesPorPermiso } from '../../core/rbac/alcance';
 import { ALERT_SCOPE_PERMISSION, type AlertScope } from '../alerts/alerts.constants';
@@ -79,7 +80,8 @@ export const summary: RequestHandler = async (req, res) => {
     occupancy: {
       census: totalCenso,
       physicalBeds: totalCamas,
-      occupancyPct: totalCamas === 0 ? 'insufficient_data' : (totalCenso / totalCamas) * 100,
+      // Redondeado a 2 decimales (misma politica que occupancy/demand.service.ts, core/http/numero.ts).
+      occupancyPct: totalCamas === 0 ? 'insufficient_data' : redondearDecimales((totalCenso / totalCamas) * 100),
       metodo: occupancyService.METODO_OCUPACION,
     },
     waitTimeP50Minutes: espera.p50,

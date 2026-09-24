@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../core/db/prisma';
 import { env } from '../../config/env';
 import { AppError } from '../../core/http/errors';
+import { redondearDecimales } from '../../core/http/numero';
 import { AUDIT, auditarEnTx, type RequestMeta } from '../../core/audit/audit';
 import { HIS_ZONA_HORARIA, fechaReferencia, resolverPeriodo } from '../his/his.periodo';
 import { recalcularDerivados } from '../his/his.derivados';
@@ -27,10 +28,11 @@ const TOP_CONSUMO = 10;
 
 type Riesgo = 'CRITICAL' | 'LOW' | 'OK' | 'insufficient_data';
 
-function redondear(valor: number, decimales = 3): number {
-  const factor = 10 ** decimales;
-  return Math.round(valor * factor) / factor;
-}
+// `avgDailyConsumption`/`daysOfInventory` se redondean a 2 decimales
+// (`redondearDecimales`, core/http/numero.ts): misma politica de precision
+// que el resto de estadisticas decimales de la API. Antes este modulo usaba
+// 3 decimales para el consumo y 1 para los dias, cada uno distinto; ahora los
+// dos usan el mismo redondeo que toda la API.
 
 /**
  * Escapa los metacaracteres de LIKE/ILIKE (`\`, `%`, `_`) para que el termino
@@ -156,8 +158,8 @@ export async function list(query: ListMedicationsQuery): Promise<ListMedications
     let dias: number | 'insufficient_data' = 'insufficient_data';
     if (stock !== null) {
       const c = consumo.get(m.code) ?? 0;
-      avg = redondear(c);
-      dias = c > 0 ? redondear(stock / c, 1) : 'insufficient_data';
+      avg = redondearDecimales(c);
+      dias = c > 0 ? redondearDecimales(stock / c) : 'insufficient_data';
     }
 
     return {
@@ -217,7 +219,7 @@ export async function critical(): Promise<CriticalMedicationsResult> {
   const items: CriticalMedicationItem[] = [];
   for (const stock of stocks) {
     const avg = consumo.get(stock.code) ?? 0;
-    const dias = avg > 0 ? redondear(stock.quantity / avg, 1) : 'insufficient_data';
+    const dias = avg > 0 ? redondearDecimales(stock.quantity / avg) : 'insufficient_data';
     const riesgo = evaluarRiesgo(dias);
     if (riesgo !== 'CRITICAL' && riesgo !== 'LOW') continue;
 
@@ -227,7 +229,7 @@ export async function critical(): Promise<CriticalMedicationsResult> {
       name: medicamento?.name ?? stock.code,
       kind: medicamento?.kind ?? null,
       stock: stock.quantity,
-      avgDailyConsumption: redondear(avg),
+      avgDailyConsumption: redondearDecimales(avg),
       // `dias` es numero aqui: `riesgo` ya descarto 'insufficient_data' arriba.
       daysOfInventory: dias as number,
       risk: riesgo,
@@ -366,7 +368,7 @@ export async function diasInventario(
 
   return stocks.map((stock) => {
     const avg = consumo.get(stock.code) ?? 0;
-    const dias = avg > 0 ? redondear(stock.quantity / avg, 1) : ('insufficient_data' as const);
+    const dias = avg > 0 ? redondearDecimales(stock.quantity / avg) : ('insufficient_data' as const);
     return { code: stock.code, name: nombrePorCodigo.get(stock.code) ?? stock.code, daysOfInventory: dias };
   });
 }
@@ -411,7 +413,7 @@ export async function listStock(query: ListStockQuery): Promise<ListStockResult>
 
   const todos: StockListItem[] = stocks.map((stock) => {
     const avg = consumo.get(stock.code) ?? 0;
-    const dias = avg > 0 ? redondear(stock.quantity / avg, 1) : ('insufficient_data' as const);
+    const dias = avg > 0 ? redondearDecimales(stock.quantity / avg) : ('insufficient_data' as const);
     const medicamento = medPorCodigo.get(stock.code);
     return {
       code: stock.code,
@@ -420,7 +422,7 @@ export async function listStock(query: ListStockQuery): Promise<ListStockResult>
       quantity: stock.quantity,
       updatedAt: stock.updatedAt.toISOString(),
       updatedBy: stock.updatedBy,
-      avgDailyConsumption: redondear(avg),
+      avgDailyConsumption: redondearDecimales(avg),
       daysOfInventory: dias,
       risk: evaluarRiesgo(dias),
     };
@@ -468,8 +470,8 @@ export async function getByCode(code: string): Promise<MedicationDetail> {
   let dias: number | 'insufficient_data' = 'insufficient_data';
   const consumoDiarioExacto = consumoMapa.get(code) ?? 0;
   if (stock) {
-    avg = redondear(consumoDiarioExacto);
-    dias = consumoDiarioExacto > 0 ? redondear(stock.quantity / consumoDiarioExacto, 1) : 'insufficient_data';
+    avg = redondearDecimales(consumoDiarioExacto);
+    dias = consumoDiarioExacto > 0 ? redondearDecimales(stock.quantity / consumoDiarioExacto) : 'insufficient_data';
   }
 
   return {

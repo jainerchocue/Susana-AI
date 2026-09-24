@@ -422,6 +422,10 @@ model Triage {
 
   @@index([triagedAt])
   @@index([level])
+  /// TC6: filtro `patientId` de `GET /triages` hacia Seq Scan (16.106 filas,
+  /// verificado con EXPLAIN en hospital_local). Cardinalidad alta (casi 1:1
+  /// paciente-triage): no es de las "2-5 valores" que no compensan un indice.
+  @@index([patientId])
   @@map("his_triages")
 }
 
@@ -481,6 +485,13 @@ model Admission {
   @@index([unit, admittedAt])
   @@index([lastActivityAt])
   @@index([triageLevel])
+  /// TC6: `recalcularDerivados` (JOIN con his_patients) y el filtro `patientId`
+  /// de `GET /admissions` hacian Seq Scan sobre 17.781 filas (EXPLAIN en
+  /// hospital_local: ~16 ms -> pasa a Index Scan).
+  @@index([patientId])
+  /// TC6: filtro `diagnosisCode` de `GET /admissions` (1.852 codigos
+  /// distintos): Seq Scan verificado con EXPLAIN, igual que `patientId`.
+  @@index([diagnosisCode])
   @@map("his_admissions")
 }
 
@@ -584,6 +595,10 @@ model SurgerySchedule {
   @@index([scheduleNumber])
   @@index([admissionId])
   @@index([executed])
+  /// TC6: filtro `procedureCode` de `GET /surgery-schedules` y el top-10 de
+  /// `/analytics/surgeries` (956 codigos distintos): Seq Scan verificado con
+  /// EXPLAIN en hospital_local sobre las 12.770 filas.
+  @@index([procedureCode])
   @@map("his_surgery_schedules")
 }
 

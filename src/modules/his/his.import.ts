@@ -1378,11 +1378,17 @@ async function importarTriagesLote(
     const pacientesExistentes = await idsPacientesExistentes(pacientesPedidos);
 
     const validos: Prisma.TriageCreateManyInput[] = [];
-    for (const { numero, d } of parseados) {
-      if (d.patientIdRaw !== null && !pacientesExistentes.has(d.patientIdRaw)) {
+    for (const { d } of parseados) {
+      // TC6 (arreglo pendiente #3): un `IdPaciente2` huerfano NO invalida la
+      // fila (a diferencia de admisiones/servicios/dispensaciones, donde el
+      // ingreso huerfano SI la invalida): se acepta con `patientId: null` y un
+      // aviso, coherente con la carga por CLI (B0, `procesarTriages` en este
+      // mismo archivo). Antes esta ruta la rechazaba (huerfanos contados en
+      // `invalidas`), distinto del importador completo para el MISMO archivo.
+      let patientId = d.patientIdRaw;
+      if (patientId !== null && !pacientesExistentes.has(patientId)) {
+        patientId = null;
         huerfanos += 1;
-        errores.agregar(numero, `paciente ${d.patientIdRaw} no encontrado`);
-        continue;
       }
       validos.push({
         id: d.id,
@@ -1392,7 +1398,7 @@ async function importarTriagesLote(
         heartRate: d.heartRate,
         respiratoryRate: d.respiratoryRate,
         temperature: d.temperature,
-        patientId: d.patientIdRaw,
+        patientId,
         code: d.code,
         classification: d.classification,
         level: d.level,
@@ -1405,7 +1411,7 @@ async function importarTriagesLote(
     acc.duplicadas += r.duplicadas;
   });
 
-  if (huerfanos > 0) avisos.push(`${huerfanos} triage(s) invalidos por paciente inexistente`);
+  if (huerfanos > 0) avisos.push(`${huerfanos} triage(s) con paciente huerfano: patientId puesto a null`);
 
   // Ingresos que YA existian referenciando estos triages (por si los ingresos
   // llegaron primero): sus derivados (triageLevel, waitMinutes) se recalculan.
@@ -1592,10 +1598,15 @@ async function importarCirugiasLote(
 
   // A diferencia de `procesarCirugias` (carga completa: borra y recarga la
   // tabla entera), aqui NO se puede vaciar la tabla: un archivo parcial
-  // subido por API borraria las cirugias de todas las cargas anteriores.
-  // Se anexa con `createMany({ skipDuplicates: true })`, que dedupe por el
-  // indice unico compuesto SALVO en las filas con `admissionId = null`
-  // (Postgres no iguala dos NULL): limitacion ya documentada en schema.prisma.
+  // subido por API borraria las cirugias creadas por CRUD y las de cargas
+  // anteriores. Se anexa con `createMany({ skipDuplicates: true })`, que
+  // dedupe por el indice unico compuesto EXCEPTO en las filas con
+  // `admissionId = null` (Postgres no iguala dos NULL: dos subidas del mismo
+  // archivo duplicarian esas filas sin parar). TC6 (arreglo pendiente #2):
+  // esas filas se dedupean a mano, comparando contra lo que ya hay en BD con
+  // `admissionId IS NULL` (equivalente a `IS NOT DISTINCT FROM` para el caso
+  // null) y contra el propio lote, sin tocar lo que ya insertaron el CRUD ni
+  // cargas previas con ingreso.
   await porLotes(leerFilasCsv(ruta, delimitador, CABECERA_CIRUGIA), tamanoLote, async (lote) => {
     const validos: Prisma.SurgeryScheduleCreateManyInput[] = [];
     for (const { numero, campos } of lote) {
@@ -1608,12 +1619,54 @@ async function importarCirugiasLote(
       validos.push({ ...parseo.data, executed: 'desconocido' });
       if (parseo.data.admissionId !== null) acc.admissionIds.add(parseo.data.admissionId);
     }
-    const r = await volcarLote(validos, (datos) => prisma.surgerySchedule.createMany({ data: datos, skipDuplicates: true }));
+
+    const conIngreso = validos.filter((v) => v.admissionId !== null);
+    const sinIngreso = validos.filter((v) => v.admissionId === null);
+    const nuevosSinIngreso = await filtrarCirugiasSinIngresoYaExistentes(sinIngreso);
+    acc.duplicadas += sinIngreso.length - nuevosSinIngreso.length;
+
+    const r = await volcarLote(
+      [...conIngreso, ...nuevosSinIngreso],
+      (datos) => prisma.surgerySchedule.createMany({ data: datos, skipDuplicates: true }),
+    );
     acc.insertadas += r.insertadas;
     acc.duplicadas += r.duplicadas;
   });
 
   return acc;
+}
+
+/**
+ * De las filas SIN ingreso (`admissionId: null`) de este lote, descarta las
+ * que ya existen en BD con la misma clave natural (`scheduleNumber` +
+ * `patientId` + `procedureCode`, admissionId IS NULL) y las que se repiten
+ * DENTRO del propio lote (el archivo trae 276 duplicados exactos, B0). El
+ * filtro por `scheduleNumber IN (...)` mantiene la consulta barata incluso
+ * con miles de filas por lote; el resto de la clave se compara en memoria.
+ */
+async function filtrarCirugiasSinIngresoYaExistentes(
+  sinIngreso: Prisma.SurgeryScheduleCreateManyInput[],
+): Promise<Prisma.SurgeryScheduleCreateManyInput[]> {
+  if (sinIngreso.length === 0) return [];
+
+  const numerosPedidos = [...new Set(sinIngreso.map((v) => v.scheduleNumber))];
+  const existentes = await prisma.surgerySchedule.findMany({
+    where: { admissionId: null, scheduleNumber: { in: numerosPedidos } },
+    select: { scheduleNumber: true, patientId: true, procedureCode: true },
+  });
+
+  const clave = (v: { scheduleNumber: string; patientId: number; procedureCode: string }): string =>
+    `${v.scheduleNumber}\u0000${v.patientId}\u0000${v.procedureCode}`;
+  const vistos = new Set(existentes.map(clave));
+
+  const nuevos: Prisma.SurgeryScheduleCreateManyInput[] = [];
+  for (const fila of sinIngreso) {
+    const k = clave(fila);
+    if (vistos.has(k)) continue;
+    vistos.add(k); // tambien dedupe DENTRO del propio lote/archivo
+    nuevos.push(fila);
+  }
+  return nuevos;
 }
 
 /**

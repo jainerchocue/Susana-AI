@@ -5,6 +5,14 @@ import { HIS_ZONA_HORARIA } from '../his/his.periodo';
  * Espera entre triage y primera atencion (`Admission.waitMinutes`, ya
  * derivado por el importador de T6). Solo entran en el calculo los ingresos
  * con triage Y atencion registrada: el resto tiene `waitMinutes` null (B0).
+ *
+ * `p50`/`p90`/`avg` se redondean a 2 decimales EN SQL (`round(x::numeric,2)`):
+ * Postgres puede paralelizar `AVG`/`percentile_cont` sobre `float8`, y el
+ * orden de combinacion de los workers no esta garantizado, asi que el mismo
+ * SELECT puede devolver un digito distinto en la cola del decimal entre
+ * ejecuciones (verificado: JSON y CSV de /analytics/triage, misma peticion,
+ * `avg` distinto en el decimal 14). El redondeo es solo de SALIDA: no toca
+ * `Admission.waitMinutes` en la BD.
  */
 
 export interface EsperaNivel {
@@ -20,9 +28,9 @@ export async function esperaPorNivel(desde: Date, hasta: Date): Promise<EsperaNi
   return prisma.$queryRaw<EsperaNivel[]>`
     SELECT "triageLevel" AS level,
       COUNT(*)::int AS n,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY "waitMinutes")::float8 AS p50,
-      percentile_cont(0.9) WITHIN GROUP (ORDER BY "waitMinutes")::float8 AS p90,
-      AVG("waitMinutes")::float8 AS avg
+      round(percentile_cont(0.5) WITHIN GROUP (ORDER BY "waitMinutes")::numeric, 2)::float8 AS p50,
+      round(percentile_cont(0.9) WITHIN GROUP (ORDER BY "waitMinutes")::numeric, 2)::float8 AS p90,
+      round(AVG("waitMinutes")::numeric, 2)::float8 AS avg
     FROM his_admissions
     WHERE "waitMinutes" IS NOT NULL
       AND "triageLevel" IS NOT NULL
@@ -46,7 +54,7 @@ interface FilaEsperaGlobal {
 export async function esperaGlobal(desde: Date, hasta: Date): Promise<EsperaGlobal> {
   const filas = await prisma.$queryRaw<FilaEsperaGlobal[]>`
     SELECT COUNT(*)::int AS n,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY "waitMinutes")::float8 AS p50
+      round(percentile_cont(0.5) WITHIN GROUP (ORDER BY "waitMinutes")::numeric, 2)::float8 AS p50
     FROM his_admissions
     WHERE "waitMinutes" IS NOT NULL
       AND "admittedAt" >= ${desde}::timestamptz AND "admittedAt" <= ${hasta}::timestamptz
@@ -73,7 +81,7 @@ export async function p50Diario(desde: Date, hasta: Date): Promise<P50Diario[]> 
   const filas = await prisma.$queryRaw<FilaP50Diario[]>`
     SELECT gs.dia::date AS dia,
       COUNT(a.id)::int AS n,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY a."waitMinutes")::float8 AS p50
+      round(percentile_cont(0.5) WITHIN GROUP (ORDER BY a."waitMinutes")::numeric, 2)::float8 AS p50
     FROM generate_series(
       date_trunc('day', (${desde}::timestamptz) AT TIME ZONE ${HIS_ZONA_HORARIA}),
       date_trunc('day', (${hasta}::timestamptz) AT TIME ZONE ${HIS_ZONA_HORARIA}),

@@ -293,6 +293,42 @@ describe('Modulo de imports (TC1)', () => {
       const sinIngreso = await prisma.surgerySchedule.findFirstOrThrow({ where: { scheduleNumber: 'ZE2E-PROG-0002' } });
       expect(sinIngreso.executed).toBe('desconocido');
     });
+
+    // TC6 (arreglo pendiente #2): antes, la fila SIN ingreso (admissionId null,
+    // "ZE2E-PROG-0002") se duplicaba en cada subida del mismo archivo: el
+    // indice unico compuesto no la protege porque Postgres no iguala dos NULL.
+    it('subir el MISMO archivo de surgery-schedules dos veces no duplica la fila sin ingreso (idempotente)', async () => {
+      const antes = await prisma.surgerySchedule.count({
+        where: { scheduleNumber: { in: ['ZE2E-PROG-0001', 'ZE2E-PROG-0002'] } },
+      });
+      expect(antes).toBe(2); // insertadas por el test anterior de esta misma suite.
+
+      const r = await subir(admin.token, 'surgery-schedules', leer('surgery-schedules.csv'));
+      const job = await esperarJobTerminado(admin.token, (r.body.data as { id: string }).id);
+      expect(job).toMatchObject({ status: 'COMPLETED', processed: 2, inserted: 0, duplicates: 2, invalid: 0 });
+
+      const despues = await prisma.surgerySchedule.count({
+        where: { scheduleNumber: { in: ['ZE2E-PROG-0001', 'ZE2E-PROG-0002'] } },
+      });
+      expect(despues).toBe(antes);
+
+      const sinIngreso = await prisma.surgerySchedule.findMany({ where: { scheduleNumber: 'ZE2E-PROG-0002' } });
+      expect(sinIngreso).toHaveLength(1);
+    });
+  });
+
+  // TC6 (arreglo pendiente #3): la importacion por API rechazaba la fila cuyo
+  // `IdPaciente2` no existe; la carga por CLI (B0) la acepta con `patientId:
+  // null` y un aviso. Ahora las dos rutas son coherentes.
+  describe('triages: paciente huerfano se acepta con patientId null + aviso (coherente con la carga CLI)', () => {
+    it('triages-huerfano: 1 procesada, 1 insertada, 0 invalidas, 1 aviso contado en warnings', async () => {
+      const r = await subir(admin.token, 'triages', leer('triages-huerfano.csv'));
+      const job = await esperarJobTerminado(admin.token, (r.body.data as { id: string }).id);
+      expect(job).toMatchObject({ status: 'COMPLETED', processed: 1, inserted: 1, invalid: 0, warnings: 1 });
+
+      const triage = await prisma.triage.findUniqueOrThrow({ where: { id: 9_000_003 } });
+      expect(triage.patientId).toBeNull();
+    });
   });
 
   describe('FK huerfanas (formato nativo |): filas invalidas con motivo, sin romper el lote', () => {

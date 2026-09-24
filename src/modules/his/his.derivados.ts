@@ -36,41 +36,62 @@ export async function recalcularDerivados(
 
   // 1) lastActivityAt: max(providedAt) U max(dispensedAt) por ingreso. Sin
   // fecha de egreso en el HIS, es la mejor aproximacion al fin de la estancia.
+  //
+  // TC6 (arreglo pendiente #1): la version anterior hacia `UPDATE ... FROM
+  // (subconsulta agregada) WHERE a.id = sub.id`, que es un JOIN implicito: si
+  // un ingreso NO aparece en la subconsulta (porque se borro su unica fila de
+  // actividad), la fila de `a` simplemente no casa con nada y el UPDATE NO LA
+  // TOCA -- se queda con el `lastActivityAt` viejo en vez de volver a null.
+  // Con un LEFT JOIN explicito contra TODOS los ingresos del filtro (`ref`),
+  // la fila siempre se actualiza: a NULL cuando `act` no tiene match, al
+  // maximo real en caso contrario.
   await db.$executeRaw`
     UPDATE his_admissions AS a
-    SET "lastActivityAt" = sub.maximo
-    FROM (
+    SET "lastActivityAt" = act.maximo
+    FROM his_admissions AS ref
+    LEFT JOIN (
       SELECT "admissionId" AS id, MAX(ts) AS maximo FROM (
         SELECT "admissionId", "providedAt" AS ts FROM his_service_records
         UNION ALL
         SELECT "admissionId", "dispensedAt" AS ts FROM his_medication_dispenses
       ) AS actividad
       GROUP BY "admissionId"
-    ) AS sub
-    WHERE a.id = sub.id AND ${condIngresos}
+    ) AS act ON act.id = ref.id
+    WHERE a.id = ref.id AND ${condIngresos}
   `;
 
-  // 2) triageLevel: copia de Triage.level (evita JOIN en cada consulta de analitica).
+  // 2) triageLevel + 3) waitMinutes: mismo problema que (1) con un INNER JOIN
+  // implicito contra `his_triages` (`a."triageId" = t.id`): si `triageId` se
+  // limpia a null (el ingreso pierde su triage), la fila deja de casar y
+  // `triageLevel`/`waitMinutes` se quedan con el nivel/espera del triage que
+  // ya no tiene. Un LEFT JOIN contra TODOS los ingresos del filtro asigna
+  // NULL en ese caso (y tambien cuando falta `firstCareAt`, para waitMinutes).
   await db.$executeRaw`
     UPDATE his_admissions AS a
-    SET "triageLevel" = t.level
-    FROM his_triages AS t
-    WHERE a."triageId" = t.id AND ${condIngresos}
-  `;
-
-  // 3) waitMinutes: minutos entre el triage y la primera atencion.
-  await db.$executeRaw`
-    UPDATE his_admissions AS a
-    SET "waitMinutes" = EXTRACT(EPOCH FROM (a."firstCareAt" - t."triagedAt")) / 60.0
-    FROM his_triages AS t
-    WHERE a."triageId" = t.id AND a."firstCareAt" IS NOT NULL AND ${condIngresos}
+    SET "triageLevel" = t.level,
+        "waitMinutes" = CASE
+          WHEN ref."firstCareAt" IS NOT NULL AND t."triagedAt" IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (ref."firstCareAt" - t."triagedAt")) / 60.0
+          ELSE NULL
+        END
+    FROM his_admissions AS ref
+    LEFT JOIN his_triages AS t ON t.id = ref."triageId"
+    WHERE a.id = ref.id AND ${condIngresos}
   `;
 
   // 4) stayHours: horas entre el ingreso y la ultima actividad registrada.
+  // Ya no filtra por `lastActivityAt IS NOT NULL` (ese WHERE es lo que dejaba
+  // un `stayHours` viejo intacto cuando `lastActivityAt` acababa de volver a
+  // null en el paso 1): ahora toca SIEMPRE las filas del filtro, con CASE
+  // para poner null cuando corresponde.
   await db.$executeRaw`
     UPDATE his_admissions AS a
-    SET "stayHours" = EXTRACT(EPOCH FROM (a."lastActivityAt" - a."admittedAt")) / 3600.0
-    WHERE a."lastActivityAt" IS NOT NULL AND ${condIngresos}
+    SET "stayHours" = CASE
+      WHEN a."lastActivityAt" IS NOT NULL
+        THEN EXTRACT(EPOCH FROM (a."lastActivityAt" - a."admittedAt")) / 3600.0
+      ELSE NULL
+    END
+    WHERE ${condIngresos}
   `;
 
   // 5) snapshot de paciente en el momento del ingreso. La edad se calcula en

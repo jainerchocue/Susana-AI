@@ -279,14 +279,16 @@ describe('Modulo de medicamentos (T9)', () => {
       });
       expect(rastro?.metadata).toMatchObject({ code: 'B05BM002702', from: null, to: 30 });
 
-      // avg = 2/30 (una unica dispensacion de 2 en el periodo de 30 dias);
-      // dias = 30 / (2/30) = 450 exactos.
+      // avg = 2/30 (una unica dispensacion de 2 en el periodo de 30 dias),
+      // redondeado a 2 decimales en la API (core/http/numero.ts) -> 0.07 EXACTO;
+      // dias = 30 / (2/30, SIN redondear) = 450 exactos (el redondeo de salida
+      // no afecta al calculo intermedio de dias de inventario).
       const detalle = await api().get('/api/v1/medications').set('Authorization', `Bearer ${usuario.token}`);
       const manitol = (detalle.body.data as Array<Record<string, unknown>>).find((i) => i.code === 'B05BM002702');
       expect(manitol?.stock).toBe(30);
       expect(manitol?.daysOfInventory).toBe(450);
       expect(manitol?.risk).toBe('OK');
-      expect(manitol?.avgDailyConsumption).toBeCloseTo(2 / 30, 3);
+      expect(manitol?.avgDailyConsumption).toBe(0.07);
     });
   });
 
@@ -868,14 +870,13 @@ describe('Modulo de medicamentos (T9)', () => {
       expect(tras5002Movido.lastActivityAt?.toISOString()).toBe(dispensedAtNuevo.toISOString());
     });
 
-    it('4) borrar: 5002 conserva el valor (sin fila que recalcular), 5001 no cambia; 404 despues', async () => {
-      // `recalcularDerivados` (TC0/his.derivados.ts, compartido con el
-      // importador: no se toca su comportamiento) es un UPDATE...FROM con JOIN
-      // implicito contra la subquery de actividad: un ingreso que se queda SIN
-      // ninguna fila de actividad no tiene fila que hacer match ahi, asi que su
-      // lastActivityAt anterior queda TAL CUAL (no se resetea a null). 5002
-      // conserva entonces el valor de la dispensacion recien borrada; 5001 no
-      // cambia (ya no la referenciaba desde el paso 3).
+    it('4) borrar: 5002 vuelve a null (sin fila que la sustente), 5001 no cambia; 404 despues', async () => {
+      // TC6: `recalcularDerivados` (his.derivados.ts) ahora hace un LEFT JOIN
+      // explicito contra TODOS los ingresos del filtro, asi que un ingreso que
+      // se queda SIN ninguna fila de actividad SI se toca: su lastActivityAt
+      // vuelve a null (antes se quedaba con el valor viejo). 5002 pierde
+      // entonces la unica actividad que tenia; 5001 no cambia (ya no la
+      // referenciaba desde el paso 3).
       const borrado = await api()
         .delete('/api/v1/medications/dispenses/900100')
         .set('Authorization', `Bearer ${admin.token}`);
@@ -890,7 +891,7 @@ describe('Modulo de medicamentos (T9)', () => {
       const final5001 = await prisma.admission.findUniqueOrThrow({ where: { id: 5001 } });
       const final5002 = await prisma.admission.findUniqueOrThrow({ where: { id: 5002 } });
       expect(final5001.lastActivityAt?.toISOString() ?? null).toBe(maxPrevio5001?.toISOString() ?? null);
-      expect(final5002.lastActivityAt?.toISOString()).toBe(dispensedAtNuevo.toISOString());
+      expect(final5002.lastActivityAt).toBeNull();
 
       const yaNoExiste = await api()
         .get('/api/v1/medications/dispenses/900100')

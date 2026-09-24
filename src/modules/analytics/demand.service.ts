@@ -1,4 +1,5 @@
 import { prisma } from '../../core/db/prisma';
+import { redondearDecimales } from '../../core/http/numero';
 import { HIS_ZONA_HORARIA } from '../his/his.periodo';
 
 const SIETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -21,6 +22,9 @@ interface FilaDemanda {
  * dias inmediatamente anteriores, ambas ventanas terminando en `hasta`
  * (normalmente `fechaReferencia()`). `prev7 = 0` -> `changePct` no se puede
  * calcular (division por cero no es "0% de cambio", es dato insuficiente).
+ * `changePct` se redondea a 2 decimales (`redondearDecimales`, solo en la
+ * salida de la API): misma politica de precision que el resto de porcentajes
+ * (core/http/numero.ts).
  */
 export async function cambioDemandaPorUnidad(hasta: Date): Promise<DemandaUnidad[]> {
   const finUltimos7 = hasta;
@@ -45,7 +49,7 @@ export async function cambioDemandaPorUnidad(hasta: Date): Promise<DemandaUnidad
     unit: f.unit,
     last7: f.last7,
     prev7: f.prev7,
-    changePct: f.prev7 === 0 ? 'insufficient_data' : ((f.last7 - f.prev7) / f.prev7) * 100,
+    changePct: f.prev7 === 0 ? 'insufficient_data' : redondearDecimales(((f.last7 - f.prev7) / f.prev7) * 100),
   }));
 }
 

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { env } from '../../src/config/env';
+import { redondearDecimales } from '../../src/core/http/numero';
 import { Sesion, comoRol, credenciales, prismaE2E } from './cliente';
 
 /**
@@ -275,7 +276,10 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
       const occupancy = comoRegistro(data.occupancy);
       expect(comoNumero(occupancy.census)).toBe(censoGlobal);
       expect(comoNumero(occupancy.physicalBeds)).toBe(camasFisicasTotal);
-      expect(occupancy.occupancyPct).toBeCloseTo((censoGlobal / camasFisicasTotal) * 100, 6);
+      // La API redondea a 2 decimales (core/http/numero.ts: AVG/porcentajes no
+      // deterministas bajo agregacion paralela de Postgres, T15+arreglo TC6):
+      // el calculo propio de este archivo se redondea IGUAL antes de comparar.
+      expect(occupancy.occupancyPct).toBeCloseTo(redondearDecimales((censoGlobal / camasFisicasTotal) * 100), 6);
       expect(occupancy.metodo).toBe('censo_estimado_ultima_actividad');
 
       // Espera p50 (7 dias hasta `datosHasta`, SIEMPRE fijo a datosHasta, no al periodo pedido).
@@ -289,7 +293,7 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
         .map((a) => a.waitMinutes as number)
         .sort((x, y) => x - y);
       expect(esperaSemana.length).toBeGreaterThan(0);
-      expect(comoNumero(data.waitTimeP50Minutes)).toBeCloseTo(percentilContinuo(esperaSemana, 0.5), 2);
+      expect(comoNumero(data.waitTimeP50Minutes)).toBeCloseTo(redondearDecimales(percentilContinuo(esperaSemana, 0.5)), 6);
 
       // Alertas abiertas por severidad: DIRECTOR ve los 4 ambitos (tiene
       // services/surgeries/medications.read == ALERT_SCOPES completo, sin
@@ -355,7 +359,7 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
           algunaInsuficiente = true;
         } else {
           const pct = numeroOInsuficiente(fila.occupancyPct);
-          expect(pct).toBeCloseTo((censo.census / beds) * 100, 6);
+          expect(pct).toBeCloseTo(redondearDecimales((censo.census / beds) * 100), 6);
           if (typeof pct === 'number' && pct > 100) algunaSobrecupo = true;
         }
       }
@@ -385,7 +389,7 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
         if (camasFisicasTotal === 0) {
           expect(fila.occupancyPct).toBe('insufficient_data');
         } else {
-          expect(numeroOInsuficiente(fila.occupancyPct)).toBeCloseTo((censoDia / camasFisicasTotal) * 100, 6);
+          expect(numeroOInsuficiente(fila.occupancyPct)).toBeCloseTo(redondearDecimales((censoDia / camasFisicasTotal) * 100), 6);
         }
       }
     });
@@ -448,9 +452,9 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
         expect(valores, `sin datos propios para el nivel ${nivel}`).toBeDefined();
         const v = valores ?? [];
         expect(comoNumero(fila.n)).toBe(v.length);
-        expect(comoNumero(fila.p50)).toBeCloseTo(percentilContinuo(v, 0.5), 2);
-        expect(comoNumero(fila.p90)).toBeCloseTo(percentilContinuo(v, 0.9), 2);
-        expect(comoNumero(fila.avg)).toBeCloseTo(v.reduce((a, b) => a + b, 0) / v.length, 2);
+        expect(comoNumero(fila.p50)).toBeCloseTo(redondearDecimales(percentilContinuo(v, 0.5)), 6);
+        expect(comoNumero(fila.p90)).toBeCloseTo(redondearDecimales(percentilContinuo(v, 0.9)), 6);
+        expect(comoNumero(fila.avg)).toBeCloseTo(redondearDecimales(v.reduce((a, b) => a + b, 0) / v.length), 6);
       }
 
       // Serie diaria de p50 (todos los niveles juntos, agrupado por dia calendario Bogota).
@@ -478,7 +482,7 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
         if (valores.length === 0) {
           expect(fila.p50).toBe('insufficient_data');
         } else {
-          expect(comoNumero(fila.p50)).toBeCloseTo(percentilContinuo(valores, 0.5), 2);
+          expect(comoNumero(fila.p50)).toBeCloseTo(redondearDecimales(percentilContinuo(valores, 0.5)), 6);
         }
       }
     });
@@ -608,7 +612,7 @@ describe('T15: /dashboard/* cotejado con los datos HIS reales', () => {
           expect(fila.changePct).toBe('insufficient_data');
           algunaInsuficienteDemanda = true;
         } else {
-          expect(numeroOInsuficiente(fila.changePct)).toBeCloseTo(((last7 - prev7) / prev7) * 100, 6);
+          expect(numeroOInsuficiente(fila.changePct)).toBeCloseTo(redondearDecimales(((last7 - prev7) / prev7) * 100), 6);
         }
       }
       // No se afirma que SIEMPRE exista una unidad con prev7=0 (a diferencia de la
