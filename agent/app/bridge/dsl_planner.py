@@ -77,25 +77,53 @@ def consulta_serie_temporal(
     return None
 
 
-def consulta_uci_alternativa(question: str, catalog: list[dict[str, Any]], max_rows: int = 100) -> dict[str, Any] | None:
-    """Si unit no tiene UCI, probar por subunidad (común en el HIS)."""
+def consulta_uci_alternativa(
+    question: str,
+    catalog: list[dict[str, Any]],
+    max_rows: int = 100,
+    *,
+    campo: str = "subunit",
+    texto_filtro: str = "UCI",
+    con_hoy: bool = True,
+) -> dict[str, Any] | None:
+    """Variantes de búsqueda UCI (unidad/subunidad / intensivo; con o sin filtro hoy)."""
     if "admissions" not in _datasets(catalog):
         return None
     texto = _norm(question)
     if "uci" not in texto:
         return None
     filters: list[dict[str, Any]] = [
-        {"field": "subunit", "op": "contains", "value": "UCI"},
+        {"field": campo, "op": "contains", "value": texto_filtro},
     ]
-    if "hoy" in texto:
+    if con_hoy and "hoy" in texto:
         filters.append({"field": "admitted_at", "op": "gte", "value": _inicio_hoy_iso()})
     return {
         "dataset": "admissions",
         "metrics": [{"agg": "count"}],
-        "groupBy": [{"field": "subunit"}],
+        "groupBy": [{"field": campo}],
         "filters": filters,
         "orderBy": [{"ref": "metric:0", "dir": "desc"}],
         "limit": min(max(1, max_rows), 20),
+    }
+
+
+def consulta_inventario_bajo(
+    catalog: list[dict[str, Any]],
+    max_rows: int = 20,
+) -> dict[str, Any] | None:
+    """Alertas LOW_STOCK activas (el umbral de días se filtra en el agente)."""
+    if "alerts" not in _datasets(catalog):
+        return None
+    return {
+        "dataset": "alerts",
+        "metrics": [{"agg": "min", "field": "value"}],
+        "groupBy": [{"field": "scope_id"}],
+        "filters": [
+            {"field": "type", "op": "eq", "value": "LOW_STOCK"},
+            {"field": "status", "op": "in", "value": ["OPEN", "ACKNOWLEDGED"]},
+        ],
+        "orderBy": [{"ref": "metric:0", "dir": "asc"}],
+        "limit": min(max_rows, 30),
     }
 
 
@@ -123,15 +151,13 @@ def elegir_consulta(question: str, catalog: list[dict[str, Any]], max_rows: int 
         k in texto for k in ("inventario", "dias de", "bajo stock", "sin stock", "menos de")
     ) and any(k in texto for k in ("medic", "farmac", "stock", "invent"))
     if pide_inventario and "alerts" in disponibles:
-        umbral = _umbral_dias(texto, 5)
-        return {
+        return consulta_inventario_bajo(catalog, max_rows=limit) or {
             "dataset": "alerts",
             "metrics": [{"agg": "min", "field": "value"}],
             "groupBy": [{"field": "scope_id"}],
             "filters": [
                 {"field": "type", "op": "eq", "value": "LOW_STOCK"},
                 {"field": "status", "op": "in", "value": ["OPEN", "ACKNOWLEDGED"]},
-                {"field": "value", "op": "lte", "value": umbral},
             ],
             "orderBy": [{"ref": "metric:0", "dir": "asc"}],
             "limit": min(limit, 20),

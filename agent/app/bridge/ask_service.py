@@ -19,11 +19,13 @@ from app.agent.predictor import Predictor, extract_series_from_result
 from app.agent.recommender import Recommender
 from app.agent.root_cause import root_cause_hint
 from app.bridge.dsl_planner import (
+    _umbral_dias,
     consulta_serie_temporal,
     consulta_uci_alternativa,
     elegir_consulta,
     intent_desde_pregunta,
 )
+from app.analytics.statistics import safe_number
 from app.bridge.node_client import ejecutar_en_node
 from app.config.settings import settings
 from app.llm.client import get_llm_client
@@ -404,28 +406,89 @@ async def handle_ask(
     rows = resultado.get("rows") or []
     if not isinstance(rows, list):
         rows = []
+    qn = _norm(question)
 
-    # UCI: si unit no devolvió filas, reintentar por subunidad
-    if (not rows) and "uci" in _norm(question):
-        alt = consulta_uci_alternativa(question, catalog, max_rows=max_rows)
-        if alt:
+    # UCI: reintentos (subunidad / intensivo / sin filtro "hoy")
+    if (not rows) and "uci" in qn:
+        for campo, texto_f, con_hoy in (
+            ("subunit", "UCI", True),
+            ("unit", "INTENSIV", True),
+            ("subunit", "INTENSIV", True),
+            ("subunit", "UCI", False),
+            ("unit", "UCI", False),
+            ("subunit", "INTENSIV", False),
+        ):
+            alt = consulta_uci_alternativa(
+                question,
+                catalog,
+                max_rows=max_rows,
+                campo=campo,
+                texto_filtro=texto_f,
+                con_hoy=con_hoy,
+            )
+            if not alt:
+                continue
             extra = await ejecutar_en_node(ticket, alt)
             if extra and (extra.get("rows") or []):
                 resultado = extra
                 query = alt
-                rows = extra.get("rows") or []
-                if not isinstance(rows, list):
-                    rows = []
+                rows = list(extra.get("rows") or [])
+                break
 
-    row_count = int(resultado.get("rowCount") or len(rows))
+    # Inventario: filtrar por umbral de días en el agente
+    if rows and ("inventario" in qn or "stock" in qn or "medic" in qn) and str(
+        query.get("dataset")
+    ) == "alerts":
+        umbral = _umbral_dias(qn, 5)
+        filtradas = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            dias = safe_number(r.get("min_value") if r.get("min_value") is not None else r.get("value"))
+            if dias is not None and float(dias) <= umbral:
+                filtradas.append(r)
+        rows = filtradas
+
+    row_count = len(rows)
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
 
-    tips = Recommender().recommend(intent, rows, columns)
-    cause = root_cause_hint(intent, rows, question)
+    # Mensajes vacíos más útiles (no genéricos)
+    empty_hint: str | None = None
+    if not rows:
+        if "uci" in qn:
+            empty_hint = (
+                "No hay ingresos etiquetados como UCI en el HIS para ese corte "
+                "(ni por unidad ni por subunidad). Puede que la UCI figure con otro nombre "
+                "o que hoy aún no haya actividad registrada."
+            )
+        elif "inventario" in qn or ("medic" in qn and "menos" in qn):
+            empty_hint = (
+                "No hay alertas de inventario bajo (LOW_STOCK) activas por debajo del umbral. "
+                "Conviene revisar el panel de alertas o ejecutar la evaluación del motor de stock."
+            )
+
+    tips = Recommender().recommend(intent, rows, columns) if rows else []
+    cause = root_cause_hint(intent, rows, question) if rows else None
+
+    if not rows and empty_hint:
+        text = await _llm_chat(
+            [
+                {"role": "system", "content": _SYSTEM_DATOS},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Pregunta: {question}\n"
+                        f"Hecho: {empty_hint}\n"
+                        "Responde en 2 frases, claro y profesional, sin inventar cifras."
+                    ),
+                },
+            ],
+            max_tokens=120,
+        )
+        return {"status": "cannot_answer", "answer": (text or empty_hint)[:_MAX_ANSWER]}
 
     forecast_text = ""
     forecast_method: str | None = None
-    # ML solo cuando la pregunta pide proyección / evolución (no en las 4 oficiales literales)
     if _es_proyeccion(question):
         try:
             serie_query = consulta_serie_temporal(question, catalog, max_rows=min(max_rows, 60))

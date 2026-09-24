@@ -249,9 +249,11 @@ def build_answer_brief(
         vals_f = [float(v) for v in vals if v is not None]
         if vals_f:
             promedio = sum(vals_f) / len(vals_f)
+            ventana = "en la última semana" if "semana" in q_norm else "en el corte consultado"
+            ambito = "en urgencias " if "urgenc" in q_norm else ""
             headline = (
-                f"El tiempo de espera promedio en el corte consultado es de "
-                f"{promedio:.1f} minutos."
+                f"El tiempo de espera promedio {ambito}{ventana} "
+                f"es de {promedio:.1f} minutos."
             )
             if dims:
                 dim = dims[0]
