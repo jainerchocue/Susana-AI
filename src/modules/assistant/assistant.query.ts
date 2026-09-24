@@ -3,7 +3,7 @@ import { prisma } from '../../core/db/prisma';
 import { env } from '../../config/env';
 import { AppError } from '../../core/http/errors';
 import type { ApiFieldError } from '../../core/http/api-response';
-import type { Dataset } from './assistant.catalog';
+import { origenSql, type Dataset } from './assistant.catalog';
 import type { QuerySpec } from './assistant.schemas';
 
 /**
@@ -294,6 +294,9 @@ function expresionAgregado(dataset: Dataset, m: Metrica): Prisma.Sql {
   }
 }
 
+const CON_TILDE = 'ÁÉÍÓÚÜÑáéíóúüñ';
+const SIN_TILDE = 'AEIOUUNaeiouun';
+
 /** Escapa `\`, `%` y `_` para que `contains` no se convierta en un comodin sin querer. */
 function escaparLike(valor: string): string {
   return valor.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
@@ -347,7 +350,9 @@ function condicionFiltro(dataset: Dataset, f: Filtro): Prisma.Sql {
       // exige validarConsulta); el valor deberia ser siempre string, pero se
       // evita `String(obj)` -> "[object Object]" por si acaso.
       const texto = typeof f.value === 'string' ? f.value : JSON.stringify(f.value);
-      return Prisma.sql`${col} ILIKE ${`%${escaparLike(texto)}%`}`;
+      // Insensible a tildes: "simpatico" encuentra "SIMPÁTICO" (los nombres CUPS del HIS las llevan;
+      // quien pregunta, a menudo no). Sin extension `unaccent`: `translate` es nativo.
+      return Prisma.sql`translate(${col}, ${CON_TILDE}, ${SIN_TILDE}) ILIKE translate(${`%${escaparLike(texto)}%`}, ${CON_TILDE}, ${SIN_TILDE})`;
     }
   }
 }
@@ -399,7 +404,7 @@ export function construirSql(c: ConsultaValidada, permisos: ReadonlySet<string>)
       : Prisma.empty;
 
   const selectList = Prisma.join([...selectGroupBy, ...selectMetrics], ', ');
-  return Prisma.sql`SELECT ${selectList} FROM ${columna(dataset.table)} ${where} ${groupBy} ${construirOrderBy(spec)} LIMIT ${spec.limit + 1}`;
+  return Prisma.sql`SELECT ${selectList} FROM ${origenSql(dataset)} ${where} ${groupBy} ${construirOrderBy(spec)} LIMIT ${spec.limit + 1}`;
 }
 
 // ── Ejecucion ────────────────────────────────────────────────────────────────

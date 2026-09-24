@@ -57,11 +57,7 @@ sequenceDiagram
     NodeInternal->>Postgres: Validar DSL y ejecutar
     Postgres-->>NodeInternal: rows
     NodeInternal-->>Agent: rows · rowCount
-    Agent->>NodeInternal: consulta_serie_temporal
-    NodeInternal->>Postgres: Serie diaria admissions
-    Postgres-->>NodeInternal: serie
-    NodeInternal-->>Agent: serie
-    Note over Agent: Predictor Random Forest · Recommender
+    Note over Agent: Narrador: solo cifras de las filas · Predictor si se pide proyección
     Agent-->>NodePublic: status · answer
     NodePublic-->>Frontend: answer · queries
     Frontend-->>User: Datos · Anticipación · Decisión
@@ -73,23 +69,21 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    startAsk["POST /v1/ask"] --> planDSL["dsl_planner.elegir_consulta"]
-    planDSL -->|sin dataset| cannotAnswer["cannot_answer"]
-    planDSL -->|query DSL| execMain["node_client.ejecutar_en_node"]
-    execMain -->|fallo Node| cannotData["cannot_answer sin datos"]
-    execMain -->|rows| intentMap["intent_desde_pregunta"]
-    intentMap --> tips["Recommender.recommend"]
-    tips --> seriesQ["consulta_serie_temporal"]
-    seriesQ --> execSeries["ejecutar_en_node serie diaria"]
-    execSeries --> extract["extract_series_from_result"]
-    extract -->|con date_field y n gte 12| rf["Predictor Random Forest"]
-    extract -->|pocos puntos| trend["Predictor tendencia explicable"]
-    extract -->|sin fecha| skipPred["Sin predicción ML"]
-    rf --> redact["_redactar datos + predicción + decisión"]
-    trend --> redact
-    skipPred --> redact
-    tips --> redact
-    redact --> okAns["status ok answer"]
+    startAsk["POST /v1/ask"] --> charla{"¿charla o rechazo?"}
+    charla -->|saludo / ayuda| okCharla["ok: respuesta determinista"]
+    charla -->|clínico / datos personales| rechazo["cannot_answer"]
+    charla -->|pregunta de datos| nlu["nlu.interpretar"]
+    nlu -->|tema reconocido| plan["planner.planificar (vocabulario real)"]
+    nlu -->|sin tema| llmPlan["llm.planificar_con_llm (validado)"]
+    llmPlan -->|nada válido| noEntendida["cannot_answer + sugerencias"]
+    plan -->|sin permiso| sinPermiso["cannot_answer: tu rol no accede"]
+    plan --> valid["dsl.validar"]
+    llmPlan --> valid
+    valid --> exec["node_client.ejecutar_en_node"]
+    exec -->|fallo Node| sinDatos["cannot_answer sin cifras"]
+    exec -->|filas| narr["narrator.redactar (+ predictor si es proyección)"]
+    narr --> pulir["llm.pulir (se descarta si altera cifras)"]
+    pulir --> okAns["ok: answer"]
 ```
 
 ---
@@ -106,6 +100,6 @@ flowchart TD
 ## Qué NO hace el agente
 
 - No ejecuta SQL directo
-- No llama a OpenRouter en el camino actual de `/v1/ask` (planner determinístico)
+- No depende de OpenRouter: el LLM solo es respaldo del planificador y pulido de redacción verificado
 - No es autoridad de datos: Node valida el DSL y ejecuta contra Postgres
 - Random Forest se entrena **por consulta** sobre la serie HIS (no modelo persistido en disco)

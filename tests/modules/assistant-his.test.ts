@@ -5,7 +5,10 @@ import { cargarFixturesHis, prisma } from '../helpers';
 import { createInternalApp } from '../../src/internal-app';
 import { emitirTicket } from '../../src/modules/assistant/assistant.tickets';
 import { construirSql, validarConsulta } from '../../src/modules/assistant/assistant.query';
-import { datasetsPara } from '../../src/modules/assistant/assistant.catalog';
+import { DATASETS, datasetsPara, describirParaAgente } from '../../src/modules/assistant/assistant.catalog';
+import { ocupacionPorUnidad } from '../../src/modules/analytics/occupancy.service';
+import { fechaReferencia } from '../../src/modules/his/his.periodo';
+import { listStock } from '../../src/modules/medications/medications.service';
 import { PERMISSIONS } from '../../src/core/rbac/permissions';
 import { env } from '../../src/config/env';
 
@@ -266,4 +269,161 @@ describe('Grain "day" en columnas timestamptz: zona horaria de Colombia', () => 
       await cargarFixturesHis();
     }
   }, 30_000);
+});
+
+// ── Datasets derivados y vocabulario (mejora del agente) ────────────────────
+// La cifra que ve el chat debe ser EXACTAMENTE la del panel: se compara contra
+// el servicio del panel sobre los mismos fixtures, no contra un numero a mano.
+
+describe('Dataset derivado "bed_occupancy" (services:read)', () => {
+  it('censo, camas fisicas y % por unidad = ocupacionPorUnidad(fechaReferencia()) del panel', async () => {
+    const panel = await ocupacionPorUnidad(await fechaReferencia());
+    expect(panel.length).toBeGreaterThan(0);
+
+    const ticket = await ticketCon([PERMISSIONS.services.read]);
+    const res = await pedir(ticket, {
+      dataset: 'bed_occupancy',
+      metrics: [
+        { agg: 'sum', field: 'census' },
+        { agg: 'sum', field: 'physical_beds' },
+        { agg: 'avg', field: 'occupancy_pct' },
+      ],
+      groupBy: [{ field: 'unit' }],
+      limit: 50,
+    });
+    expect(res.status).toBe(200);
+    const filas = (res.body.data as FilaResultado).rows;
+
+    for (const p of panel) {
+      const fila = filas.find((f) => f.unit === p.unit);
+      expect(fila, p.unit).toBeDefined();
+      expect(fila!.sum_census).toBe(p.census);
+      expect(fila!.sum_physical_beds).toBe(p.physicalBeds);
+      expect(fila!.avg_occupancy_pct).toBe(p.occupancyPct === 'insufficient_data' ? null : p.occupancyPct);
+    }
+  });
+
+  it('sin services:read -> 422 (mismo permiso que los ingresos de los que sale)', async () => {
+    const ticket = await ticketCon([PERMISSIONS.medications.read]);
+    const res = await pedir(ticket, { dataset: 'bed_occupancy', metrics: [{ agg: 'count' }], limit: 10 });
+    expect(res.status).toBe(422);
+  });
+});
+
+describe('Dataset derivado "medication_inventory" (medications:read)', () => {
+  it('stock, dias de inventario y riesgo = listStock() del panel', async () => {
+    const [con] = await prisma.medicationDispense.findMany({ select: { code: true }, distinct: ['code'], take: 1 });
+    await prisma.medicationStock.createMany({
+      data: [
+        { code: con!.code, quantity: 1 },
+        { code: 'SIN-CONSUMO-TEST', quantity: 50 },
+      ],
+    });
+    try {
+      const panel = await listStock({ page: 1, limit: 100 });
+      const ticket = await ticketCon([PERMISSIONS.medications.read]);
+      const res = await pedir(ticket, {
+        dataset: 'medication_inventory',
+        metrics: [
+          { agg: 'sum', field: 'stock' },
+          { agg: 'min', field: 'days_of_inventory' },
+          { agg: 'min', field: 'avg_daily_consumption' },
+        ],
+        groupBy: [{ field: 'code' }, { field: 'name' }, { field: 'risk' }],
+        limit: 50,
+      });
+      expect(res.status).toBe(200);
+      const filas = (res.body.data as FilaResultado).rows;
+      expect(filas).toHaveLength(panel.items.length);
+
+      for (const item of panel.items) {
+        const fila = filas.find((f) => f.code === item.code);
+        expect(fila, item.code).toBeDefined();
+        expect(fila!.name).toBe(item.name);
+        expect(fila!.sum_stock).toBe(item.quantity);
+        expect(fila!.risk).toBe(item.risk);
+        expect(fila!.min_days_of_inventory).toBe(item.daysOfInventory === 'insufficient_data' ? null : item.daysOfInventory);
+      }
+      // Sin consumo reciente: no hay dias de inventario que inventar.
+      expect(filas.find((f) => f.code === 'SIN-CONSUMO-TEST')!.risk).toBe('insufficient_data');
+
+      // "Menos de 5 dias de inventario" (pregunta oficial del reto): filtro sobre la medida.
+      const filtrada = await pedir(await ticketCon([PERMISSIONS.medications.read]), {
+        dataset: 'medication_inventory',
+        metrics: [{ agg: 'min', field: 'days_of_inventory' }],
+        groupBy: [{ field: 'code' }],
+        filters: [{ field: 'days_of_inventory', op: 'lt', value: 5 }],
+        limit: 50,
+      });
+      expect(filtrada.status).toBe(200);
+      const esperados = panel.items
+        .filter((i) => i.daysOfInventory !== 'insufficient_data' && i.daysOfInventory < 5)
+        .map((i) => i.code)
+        .sort();
+      expect((filtrada.body.data as FilaResultado).rows.map((f) => f.code).sort()).toEqual(esperados);
+    } finally {
+      await prisma.medicationStock.deleteMany({ where: { code: { in: [con!.code, 'SIN-CONSUMO-TEST'] } } });
+    }
+  });
+});
+
+describe('Nombres legibles en datasets HIS (JOIN fijo en Node)', () => {
+  it('medications: se puede agrupar por nombre y tipo del medicamento', async () => {
+    const ticket = await ticketCon([PERMISSIONS.medications.read]);
+    const res = await pedir(ticket, {
+      dataset: 'medications',
+      metrics: [{ agg: 'sum', field: 'quantity' }],
+      groupBy: [{ field: 'name' }, { field: 'kind' }],
+      limit: 20,
+    });
+    expect(res.status).toBe(200);
+    const filas = (res.body.data as FilaResultado).rows;
+    const conNombre = await prisma.medication.findMany({ select: { name: true } });
+    const nombres = new Set(conNombre.map((m) => m.name));
+    expect(filas.some((f) => typeof f.name === 'string' && nombres.has(f.name))).toBe(true);
+  });
+});
+
+describe('describirParaAgente: vocabulario real, nunca nombres fisicos', () => {
+  it('unit lleva los valores REALES de la BD; enums llevan sus valores fijos; diagnosis_name no (no es vocabulario)', async () => {
+    const catalogo = await describirParaAgente(Object.values(DATASETS));
+    const dim = (ds: string, nombre: string) =>
+      catalogo.find((d) => d.dataset === ds)!.dimensions.find((d) => d.name === nombre)!;
+
+    const unidades = await prisma.admission.findMany({ select: { unit: true }, distinct: ['unit'] });
+    expect(new Set(dim('admissions', 'unit').values)).toEqual(new Set(unidades.map((u) => u.unit)));
+    expect(dim('alerts', 'severity').values).toEqual(['WARNING', 'CRITICAL']);
+    expect(dim('surgeries', 'executed').values).toEqual(['si', 'no', 'desconocido']);
+    expect(dim('admissions', 'diagnosis_name').values).toBeUndefined();
+
+    // Python nunca ve la tabla ni la columna real (ni la SQL de un derivado).
+    const texto = JSON.stringify(catalogo);
+    for (const fisico of ['his_admissions', 'his_medication_dispenses', 'medication_stock', 'admittedAt', 'SELECT']) {
+      expect(texto).not.toContain(fisico);
+    }
+  });
+});
+
+describe('Filtro "contains": insensible a tildes', () => {
+  it('"osteosintesis" sin tilde encuentra "OSTEOSÍNTESIS" (nombre CUPS con tilde) y al reves', async () => {
+    const pedirContiene = async (valor: string) => {
+      const res = await pedir(await ticketCon([PERMISSIONS.services.read]), {
+        dataset: 'services',
+        metrics: [{ agg: 'sum', field: 'quantity' }],
+        filters: [{ field: 'procedure_name', op: 'contains', value: valor }],
+        limit: 1,
+      });
+      expect(res.status).toBe(200);
+      return (res.body.data as FilaResultado).rows[0]!.sum_quantity;
+    };
+    const original = await prisma.procedure.findUniqueOrThrow({ where: { code: '806104' } });
+    await prisma.procedure.update({ where: { code: '806104' }, data: { name: 'OSTEOSÍNTESIS' } });
+    try {
+      expect(await pedirContiene('osteosintesis')).toBe(1);
+      expect(await pedirContiene('Osteosíntesis')).toBe(1);
+      expect(await pedirContiene('sin-coincidencia')).toBeNull();
+    } finally {
+      await prisma.procedure.update({ where: { code: '806104' }, data: { name: original.name } });
+    }
+  });
 });

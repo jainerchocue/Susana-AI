@@ -22,6 +22,7 @@ interface CuerpoAsk {
   ticket: string;
   catalog: { dataset: string }[];
   limits: { maxQueries: number; maxRows: number };
+  context: { referenceDate: string | null; dataStart: string | null; timezone: string };
 }
 
 interface RespuestaStub {
@@ -173,8 +174,13 @@ describe('POST /api/v1/assistant/query', () => {
       // El catalogo que ve Python es LOGICO: nunca "alerts" con nombres de
       // columna reales. FARMACIA tiene medications:read (T1) y desde T10 ese
       // permiso tambien destapa el dataset "medications" (dispensaciones del
-      // HIS): el catalogo de un FARMACIA crecio a dos datasets, no uno.
-      expect(cuerpo.catalog.map((d) => d.dataset)).toEqual(['alerts', 'medications']);
+      // HIS): el catalogo de un FARMACIA crecio a dos datasets, no uno. Y
+      // `medication_inventory` (derivado: dias de inventario) va con el mismo permiso.
+      expect(cuerpo.catalog.map((d) => d.dataset)).toEqual(['alerts', 'medications', 'medication_inventory']);
+      // El "hoy" de los datos viaja al agente (nulo si no hay HIS importado): nunca lo adivina.
+      expect(cuerpo.context.timezone).toBe('America/Bogota');
+      expect(cuerpo.context.referenceDate === null || !Number.isNaN(Date.parse(cuerpo.context.referenceDate))).toBe(true);
+      expect(cuerpo.context.dataStart === null || !Number.isNaN(Date.parse(cuerpo.context.dataStart))).toBe(true);
 
       const respuesta = await llamarInterno(cuerpo.ticket, {
         dataset: 'alerts',

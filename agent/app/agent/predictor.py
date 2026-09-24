@@ -1,18 +1,17 @@
 """
-Predicción / alertas tempranas para decisión hospitalaria.
+Proyección de series diarias del HIS (ingresos, espera, consumo).
 
-Capa principal: Random Forest (scikit-learn) sobre la serie temporal HIS
-(lags + media móvil). Si hay pocos puntos o falla el ML, cae a tendencia
-explicable (medias) — nunca inventa un número sin calcularlo.
+Random Forest (scikit-learn) entrenado por consulta sobre la propia serie
+(lags 1, 2, 3 y 7 + media móvil), con su error típico medido en los últimos
+periodos sin barajar el tiempo. Con poca historia cae al promedio reciente:
+nunca se devuelve un número que no se haya calculado.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any
 
-from app.analytics.statistics import mean, moving_average, safe_number, simple_trend
 
 _DIAS_ES = (
     "lunes",
@@ -28,94 +27,6 @@ _DIAS_ES = (
 _MIN_ML = 12
 _HORIZON = 3
 _FEATURE_NAMES = ("lag_1", "lag_2", "lag_3", "lag_7", "media_movil_3", "indice_t")
-
-
-def _parse_fecha(valor: Any) -> datetime | None:
-    if valor is None:
-        return None
-    if isinstance(valor, datetime):
-        return valor
-    texto = str(valor).strip()
-    if not texto:
-        return None
-    try:
-        return datetime.fromisoformat(texto.replace("Z", "+00:00")[:19])
-    except ValueError:
-        return None
-
-
-def extract_series_from_result(resultado: dict[str, Any]) -> tuple[list[float], dict[str, Any]]:
-    """Extrae serie numérica (orden temporal si hay fecha) + contexto para el mensaje."""
-    rows = resultado.get("rows") or []
-    if not isinstance(rows, list) or not rows:
-        return [], {}
-
-    sample = rows[0] if isinstance(rows[0], dict) else {}
-    columns = list(resultado.get("columns") or sample.keys())
-
-    metric_cols = [
-        c
-        for c in columns
-        if c.startswith("count")
-        or c.startswith("avg_")
-        or c.startswith("sum_")
-        or c in {"quantity", "value", "wait_minutes", "stay_hours"}
-    ]
-    date_cols = [
-        c
-        for c in columns
-        if "admitted" in c
-        or c.endswith("_at")
-        or "date" in c
-        or "fecha" in c
-        or c in {"day", "week", "month"}
-    ]
-
-    metric = metric_cols[0] if metric_cols else None
-    if metric is None:
-        for c in columns:
-            if safe_number(sample.get(c)) is not None and c not in date_cols:
-                metric = c
-                break
-    if metric is None:
-        return [], {}
-
-    date_col = date_cols[0] if date_cols else None
-
-    puntos: list[tuple[datetime | None, float]] = []
-    for fila in rows:
-        if not isinstance(fila, dict):
-            continue
-        num = safe_number(fila.get(metric))
-        if num is None:
-            continue
-        fecha = _parse_fecha(fila.get(date_col)) if date_col else None
-        puntos.append((fecha, num))
-
-    if not puntos:
-        return [], {}
-
-    if date_col and any(p[0] is not None for p in puntos):
-        puntos.sort(key=lambda p: p[0] or datetime.min)
-
-    series = [p[1] for p in puntos]
-
-    by_weekday: dict[str, list[float]] = defaultdict(list)
-    for fecha, num in puntos:
-        if fecha is not None:
-            by_weekday[_DIAS_ES[fecha.weekday()]].append(num)
-
-    weekday_avg = {dia: (sum(vals) / len(vals)) for dia, vals in by_weekday.items() if vals}
-    peak_day = max(weekday_avg, key=weekday_avg.get) if weekday_avg else None
-
-    return series, {
-        "metric": metric,
-        "date_field": date_col,
-        "by_weekday": weekday_avg,
-        "peak_day": peak_day,
-        "n": len(series),
-        "last": series[-1] if series else None,
-    }
 
 
 def _features_at(series: list[float], t: int) -> list[float] | None:
@@ -201,165 +112,28 @@ def _rf_horizon(series: list[float], model: Any, horizon: int = _HORIZON) -> lis
     return out
 
 
-class Predictor:
+@dataclass
+class Proyeccion:
+    valores: list[float]  # un valor por periodo futuro
+    metodo: str  # 'ml' | 'promedio_reciente'
+    error_tipico: float | None  # MAE en validación temporal (solo 'ml')
+
+
+def proyectar(series: list[float], horizonte: int = _HORIZON) -> Proyeccion | None:
     """
-    Aliado de decisión: predice con Random Forest cuando hay historia suficiente;
-    si no, explica con tendencia simple.
+    Proyección numérica de los próximos `horizonte` periodos. Con historia
+    suficiente usa el bosque aleatorio (y su error típico medido en los
+    últimos periodos, sin barajar el tiempo); si no, el promedio de los
+    últimos 7 periodos. Con menos de 7 puntos no proyecta: no hay base.
     """
-
-    def forecast_facts(
-        self,
-        series: list[float],
-        *,
-        label: str = "ingresos",
-        context: dict[str, Any] | None = None,
-    ) -> tuple[str, str]:
-        """
-        Devuelve (mensaje, método) donde método es 'random_forest' | 'tendencia' | 'insuficiente'.
-        """
-        context = context or {}
-        if len(series) < 3:
-            msg = (
-                f"Aún no hay suficiente historial de {label} para anticipar "
-                "con seguridad los próximos días. Con más datos podré proyectar mejor."
-            )
-            return msg, "insuficiente"
-
-        ml = self._message_ml(series, label=label, context=context)
-        if ml:
-            return ml, "random_forest"
-        return self._message_tendencia(series, label=label, context=context), "tendencia"
-
-    def forecast_message(
-        self,
-        series: list[float],
-        *,
-        label: str = "ingresos",
-        context: dict[str, Any] | None = None,
-    ) -> str:
-        msg, _method = self.forecast_facts(series, label=label, context=context)
-        return msg
-
-    def _message_ml(
-        self,
-        series: list[float],
-        *,
-        label: str,
-        context: dict[str, Any],
-    ) -> str | None:
-        if len(series) < _MIN_ML:
-            return None
-
-        trained = _train_random_forest(series)
-        if not trained:
-            return None
-
-        model, top_feats, mae = trained
-        futuros = _rf_horizon(series, model, _HORIZON)
-        if not futuros:
-            return None
-
-        ultimo = series[-1]
-        proy = futuros[0]
-        tendencia = simple_trend(series)
-        cambio_pct: float | None = None
-        if ultimo > 0:
-            cambio_pct = ((proy - ultimo) / ultimo) * 100.0
-
-        horizon_txt = ", ".join(f"{v:.0f}" for v in futuros)
-        # Texto para el chat: 100% lenguaje operativo (sin nombres de algoritmo)
-        partes = [
-            f"Para los próximos días, la anticipación de {label} apunta a "
-            f"alrededor de {horizon_txt} (el último valor observado fue {ultimo:.0f})."
-        ]
-        if cambio_pct is not None:
-            if abs(cambio_pct) < 2:
-                partes.append("Respecto al día más reciente, la carga se mantiene prácticamente estable.")
-            else:
-                sentido = "al alza" if cambio_pct >= 0 else "a la baja"
-                partes.append(
-                    f"Respecto al día más reciente, la señal va {sentido} "
-                    f"cerca de un {abs(cambio_pct):.0f}% (tendencia general: {tendencia})."
-                )
-        else:
-            partes.append(f"La tendencia general se ve {tendencia}.")
-
-        peak = context.get("peak_day")
-        by_wd = context.get("by_weekday") or {}
-        if peak and peak in by_wd:
-            partes.append(
-                f"En el historial, el día de mayor carga suele ser el {peak} "
-                f"(promedio cercano a {by_wd[peak]:.0f})."
-            )
-
-        _ = (top_feats, mae)
-        return " ".join(partes)
-
-    def _message_tendencia(
-        self,
-        series: list[float],
-        *,
-        label: str,
-        context: dict[str, Any],
-    ) -> str:
-        """Respaldo explicable cuando aún no hay datos para RF."""
-        tendencia = simple_trend(series)
-        mitad = max(1, len(series) // 2)
-        primera = mean(series[:mitad]) or 0.0
-        segunda = mean(series[mitad:]) or 0.0
-        ultimo = series[-1]
-        ventana = min(3, len(series))
-        ma = moving_average(series, window=ventana)
-        ma_ultimo = ma[-1]
-        delta = segunda - primera
-        proyectado = max(0.0, ultimo + (delta / mitad))
-
-        pct: float | None = None
-        if primera > 0:
-            pct = ((segunda - primera) / primera) * 100.0
-
-        partes: list[str] = [
-            f"Con el historial disponible de {label}, la anticipación para los próximos días "
-            "es orientativa; con más recorrido temporal ganará certeza."
-        ]
-
-        if tendencia == "creciente":
-            if pct is not None:
-                partes.append(
-                    f"La segunda mitad del periodo está cerca de un {pct:.0f}% por encima de la primera."
-                )
-            else:
-                partes.append("Se observa una tendencia creciente.")
-            partes.append(
-                f"Para el próximo periodo se estima alrededor de {proyectado:.0f} "
-                f"(último valor {ultimo:.0f}"
-                + (f"; media reciente {ma_ultimo:.0f}" if ma_ultimo is not None else "")
-                + ")."
-            )
-        elif tendencia == "decreciente":
-            if pct is not None:
-                partes.append(
-                    f"La segunda mitad está cerca de un {abs(pct):.0f}% por debajo de la primera."
-                )
-            else:
-                partes.append("Se observa una tendencia decreciente.")
-            partes.append(
-                f"Para el próximo periodo se estima alrededor de {proyectado:.0f} "
-                f"(último valor {ultimo:.0f})."
-            )
-        else:
-            partes.append(
-                f"El patrón se ve estable (último valor {ultimo:.0f}"
-                + (f"; media reciente {ma_ultimo:.0f}" if ma_ultimo is not None else "")
-                + f"); la proyección se acerca a {proyectado:.0f}."
-            )
-
-        peak = context.get("peak_day")
-        by_wd = context.get("by_weekday") or {}
-        if peak and peak in by_wd:
-            partes.append(
-                f"El día histórico de mayor carga suele ser el {peak} "
-                f"(promedio cercano a {by_wd[peak]:.0f})."
-            )
-
-        return " ".join(partes)
+    if len(series) >= _MIN_ML:
+        entrenado = _train_random_forest(series)
+        if entrenado:
+            modelo, _, mae = entrenado
+            futuros = _rf_horizon(series, modelo, horizonte)
+            if len(futuros) == horizonte:
+                return Proyeccion(futuros, "ml", mae)
+    if len(series) >= 7:
+        base = sum(series[-7:]) / 7
+        return Proyeccion([base] * horizonte, "promedio_reciente", None)
+    return None

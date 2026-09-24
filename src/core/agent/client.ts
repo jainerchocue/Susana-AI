@@ -13,8 +13,21 @@ import { logger } from '../logger';
 export interface AgentCatalogEntry {
   dataset: string;
   description: string;
-  dimensions: { name: string; type: 'string' | 'number' | 'date'; description: string }[];
+  dimensions: { name: string; type: 'string' | 'number' | 'date'; description: string; values?: string[] }[];
   measures: { name: string; description: string }[];
+}
+
+/**
+ * Contexto temporal: `referenceDate` es el "hoy" de los datos (ultimo ingreso
+ * importado), para que "hoy", "esta semana" o "este mes" signifiquen lo mismo
+ * en el chat que en el panel; `dataStart`, el primero. Nulos si no hay datos
+ * HIS importados.
+ */
+export interface AgentContext {
+  referenceDate: string | null;
+  /** Primer ingreso importado: el agente no cuenta como completo un periodo que empieza antes. */
+  dataStart: string | null;
+  timezone: string;
 }
 
 export interface AgentAskInput {
@@ -22,6 +35,7 @@ export interface AgentAskInput {
   ticket: string;
   catalog: AgentCatalogEntry[];
   limits: { maxQueries: number; maxRows: number };
+  context: AgentContext;
   requestId: string;
 }
 
@@ -61,6 +75,7 @@ export async function preguntarAgente(input: AgentAskInput): Promise<AgentAnswer
         ticket: input.ticket,
         catalog: input.catalog,
         limits: input.limits,
+        context: input.context,
       }),
       signal: AbortSignal.timeout(env.AGENT_TIMEOUT_MS),
     });

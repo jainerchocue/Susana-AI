@@ -1,0 +1,638 @@
+{
+ "referenceDate": "2026-09-21T19:33:44.000Z",
+ "catalog": [
+  {
+   "dataset": "alerts",
+   "description": "Alertas operativas generadas por el motor de reglas del hospital.",
+   "dimensions": [
+    {
+     "name": "type",
+     "type": "string",
+     "description": "Tipo de alerta (LOW_STOCK, HIGH_OCCUPANCY, LONG_WAIT, DEMAND_SPIKE, SURGERY_CANCELLATIONS).",
+     "values": [
+      "LOW_STOCK",
+      "HIGH_OCCUPANCY",
+      "LONG_WAIT",
+      "DEMAND_SPIKE",
+      "SURGERY_CANCELLATIONS"
+     ]
+    },
+    {
+     "name": "severity",
+     "type": "string",
+     "description": "Severidad: WARNING o CRITICAL.",
+     "values": [
+      "WARNING",
+      "CRITICAL"
+     ]
+    },
+    {
+     "name": "status",
+     "type": "string",
+     "description": "Estado: OPEN, ACKNOWLEDGED o RESOLVED.",
+     "values": [
+      "OPEN",
+      "ACKNOWLEDGED",
+      "RESOLVED"
+     ]
+    },
+    {
+     "name": "scope",
+     "type": "string",
+     "description": "Ambito: medication, service, triage o surgery.",
+     "values": [
+      "medication",
+      "service",
+      "triage",
+      "surgery"
+     ]
+    },
+    {
+     "name": "scope_id",
+     "type": "string",
+     "description": "Codigo HIS del recurso afectado (medicamento, servicio...)."
+    },
+    {
+     "name": "first_seen_at",
+     "type": "date",
+     "description": "Fecha en la que se detecto por primera vez."
+    },
+    {
+     "name": "last_seen_at",
+     "type": "date",
+     "description": "Ultima fecha en la que se detecto activa."
+    }
+   ],
+   "measures": [
+    {
+     "name": "value",
+     "description": "Valor de la metrica que disparo la alerta."
+    },
+    {
+     "name": "threshold",
+     "description": "Umbral que se supero."
+    }
+   ]
+  },
+  {
+   "dataset": "admissions",
+   "description": "Ingresos hospitalarios: cada fila es el episodio de un paciente en el hospital, con su unidad, triage y los tiempos derivados de espera y estancia.",
+   "dimensions": [
+    {
+     "name": "unit",
+     "type": "string",
+     "description": "Unidad del ingreso (URGENCIAS, HOSPITALIZACION, PEDIATRIA...).",
+     "values": [
+      "GINECO OBSTRETICIA",
+      "HOSPITALIZACION",
+      "PEDIATRIA",
+      "RECUPERACION",
+      "SALA PARTOS",
+      "UNIDAD DE CUIDADO BASICO",
+      "UNIDAD DE CUIDADO INTENSIVO",
+      "UNIDAD DE CUIDADO INTERMEDIO",
+      "URGENCIAS"
+     ]
+    },
+    {
+     "name": "subunit",
+     "type": "string",
+     "description": "Subunidad dentro de la unidad.",
+     "values": [
+      "EMERGENCIA ADULTOS",
+      "EMERGENCIA PEDIATRIA",
+      "GINECO OBSTETRICIA",
+      "HOSPITALIZACION 1",
+      "HOSPITALIZACION 2",
+      "HOSPITALIZACION 3",
+      "PEDIATRIA",
+      "RECUPERACION ADULTOS",
+      "SALA PARTOS",
+      "UNIDAD DE CUIDAD BASICO NEONATAL",
+      "UNIDAD DE CUIDADO INTENSIVO NEONATAL",
+      "UNIDAD DE CUIDADO INTENSIVO PEDIATRICO",
+      "UNIDAD DE CUIDADO INTERMEDIO ADULTOS",
+      "UNIDAD DE CUIDADO INTERMEDIO NEONATAL",
+      "UNIDAD DE CUIDADO INTERMEDIO PEDIATRICO",
+      "UNIDAD DE CUIDADOS INTENSIVOS ADULTOS",
+      "URGENCIAS ADULTOS",
+      "URGENCIAS GINECOLOGIA",
+      "URGENCIAS PEDIATRIA"
+     ]
+    },
+    {
+     "name": "admission_class",
+     "type": "string",
+     "description": "Clase del ingreso (Ambulatorio, Hospitalario...).",
+     "values": [
+      "Ambulatorio",
+      "Hospitalario"
+     ]
+    },
+    {
+     "name": "entry_route",
+     "type": "string",
+     "description": "Via de ingreso (Urgencias, Remision...).",
+     "values": [
+      "Cirugia Ambulatorias",
+      "Hospitalizacion",
+      "Remitido",
+      "Urgencias"
+     ]
+    },
+    {
+     "name": "risk_type",
+     "type": "string",
+     "description": "Tipo de riesgo asociado al ingreso.",
+     "values": [
+      "Accidente de Trabajo",
+      "Accidente de transito",
+      "Accidente de Transito Comun",
+      "Accidente en el Hogar",
+      "Atencion Inicial Urgencias",
+      "Atencion Poblacion Perinatal",
+      "Enfermedad General",
+      "Enfermedad profesional",
+      "Evento catastrofico de Origen natural",
+      "Lesion auto inflingida",
+      "Lesion por Agresion",
+      "Otro Tipo Accidente"
+     ]
+    },
+    {
+     "name": "diagnosis_code",
+     "type": "string",
+     "description": "Codigo del diagnostico principal, si existe."
+    },
+    {
+     "name": "diagnosis_name",
+     "type": "string",
+     "description": "Nombre del diagnostico principal, si existe."
+    },
+    {
+     "name": "triage_level",
+     "type": "number",
+     "description": "Nivel de triage (1 a 5; 1 es el mas urgente). Nulo sin triage."
+    },
+    {
+     "name": "patient_sex",
+     "type": "string",
+     "description": "Sexo del paciente en el momento del ingreso.",
+     "values": [
+      "Femenino",
+      "Masculino"
+     ]
+    },
+    {
+     "name": "patient_regime",
+     "type": "string",
+     "description": "Regimen de afiliacion del paciente.",
+     "values": [
+      "Contributivo",
+      "Otro",
+      "Particular",
+      "Subsidiado",
+      "Vinculado"
+     ]
+    },
+    {
+     "name": "patient_zone",
+     "type": "string",
+     "description": "Zona de residencia del paciente: Urbana o Rural.",
+     "values": [
+      "Rural",
+      "Urbana"
+     ]
+    },
+    {
+     "name": "admitted_at",
+     "type": "date",
+     "description": "Fecha y hora del ingreso."
+    }
+   ],
+   "measures": [
+    {
+     "name": "wait_minutes",
+     "description": "Minutos entre el triage y la primera atencion."
+    },
+    {
+     "name": "stay_hours",
+     "description": "Horas entre el ingreso y la ultima actividad registrada (estancia estimada, sin fecha de egreso en el HIS)."
+    },
+    {
+     "name": "patient_age",
+     "description": "Edad del paciente, en anios, en el momento del ingreso."
+    }
+   ]
+  },
+  {
+   "dataset": "services",
+   "description": "Servicios y procedimientos prestados durante un ingreso (laboratorio, imagenes, procedimientos...), con el nombre CUPS del procedimiento.",
+   "dimensions": [
+    {
+     "name": "area",
+     "type": "string",
+     "description": "Area que presto el servicio.",
+     "values": [
+      "APOYO DIAGNOSTICO - ECOGRAFIAS",
+      "APOYO DIAGNOSTICO - ELECTROCARDIOGRAMA",
+      "APOYO DIAGNOSTICO - LABORATORIO CLINICO",
+      "APOYO DIAGNOSTICO - MATERNO FETAL - ECOGRAFIAS",
+      "APOYO DIAGNOSTICO - PATOLOGIAS",
+      "APOYO DIAGNOSTICO - PROCED. DE ENDOSCOPIA DIAGN. Y TERAP.",
+      "APOYO DIAGNOSTICO - PROCEDIMIENTOS C.P.C.U.",
+      "APOYO DIAGNOSTICO - PROCEDIMIENTOS DE FISIATRIA",
+      "APOYO DIAGNOSTICO - RAYOS X",
+      "APOYO DIAGNOSTICO - UNIDAD TRANSFUSIONAL",
+      "APOYO TERAPEUTICO - FARMACIA",
+      "APOYO TERAPEUTICO - FARMACIA DISPOSITIVOS MED UMI",
+      "APOYO TERAPEUTICO - FARMACIA UMI",
+      "APOYO TERAPEUTICO - NEBULIZACIONES",
+      "APOYO TERAPEUTICO - NUTRICION",
+      "APOYO TERAPEUTICO - REHABILITACION Y FISIOTERAPIA",
+      "APOYO TERAPEUTICO - TERAPIA DE LENGUAJE",
+      "APOYO TERAPEUTICO - TERAPIA RESPIRATORIA",
+      "APOYO TERAPEUTICO - TRABAJO SOCIAL",
+      "APOYO TERAPEUTICO NEFROLOGIA ADULTOS CONSULTA Y PROCEDIMIENTOS",
+      "APOYO TERAPEUTICO NEFROLOGIA PEDIATRICA CONSULTA Y PROCEDIMIENTOS",
+      "APOYO TERAPEUTICO PSICOLOGIA",
+      "APOYO TERAPEUTICO- FARMACIA DISPOS MED QUIROFANOS",
+      "APOYO TERAPEUTICO-FARMACIO DISPOSITIVOS MEDICOS",
+      "APOYO TERAPEUTICO-TERAPIA ENTEROSTOMAL",
+      "ATENCION AL USUARIO",
+      "CONSULTA EXTERNA - MEDICINA ESPECIALIZADA",
+      "CONSULTA EXTERNA - MEDICINA GENERAL",
+      "CONSULTA EXTERNA - PROCEDIMIENTOS",
+      "CONSULTA-OBSERVACION SALA RESPIRATORIA",
+      "COORDINACION ENFERMERIA UMI",
+      "H ESTANCIA GENERAL",
+      "H ESTANCIA GENERAL ADULTOS",
+      "H ESTANCIA GENERAL ADULTOS INTERC VALORACION",
+      "H ESTANCIA GENERAL GINECOLOGIA",
+      "H ESTANCIA GENERAL PEDIATRIA - INTERCONS VALORACIO",
+      "INFRAESTRUCTURA",
+      "QUIROFANOS - CIRUGIA GENERAL",
+      "QUIROFANOS - CIRUGIA GINECOBSTETRICA",
+      "QUIROFANOS - CIRUGIA OFTALMOLOGICA",
+      "QUIROFANOS - CIRUGIA PLASTICA",
+      "QUIROFANOS - OTRAS ESPECIALIDADES",
+      "QUIROFANOS - SALA DE PARTOS",
+      "QUIROFANOS - TRAUMATOLOGIA Y ORTOPEDIA",
+      "QUIROFANOS - UROLOGIA",
+      "QUIROFANOS PEDIATRIA UMI - CIRUGIA PEDIATRICA",
+      "QUIROFANOS PEDIATRIA UMI - TRAUMATOLOGIA",
+      "RECUPERACION QUIROFANOS",
+      "SERVICIOS CONEXOS A LA SALUD - AMBULANCIA",
+      "UCI ADULTOS CUIDADO INTENSIVO",
+      "UCI ADULTOS CUIDADO INTENSIVO 2",
+      "UCI ADULTOS CUIDADO INTERMEDIO 2",
+      "UCI ADULTOS CUIDADOS INTERMEDIOS",
+      "UMI  NEONATOS  CUIDADO BASICO",
+      "UMI  NEONATOS  CUIDADO INTERMEDIO",
+      "UMI  UCIP CUIDADO INTERMEDIO",
+      "UMI - CONSULTA PEDIATRICA",
+      "UMI - INTERCONSULTA",
+      "UMI - OBSERVACION PEDIATRICA",
+      "UMI - PROCEDIMIENTOS PEDIATRICOS",
+      "UMI - SALA EMERGENCIAS PEDIATRICAS",
+      "UMI HOSPITALIZACION - PEDIATRIA",
+      "UMI NEONATOS  CUIDADO INTENSIVO",
+      "UMI UCIP CUIDADO INTENSIVO",
+      "UMI- INTERCONS VALORACION INTRAHOSPITALARIA",
+      "UNIDAD MATERNO INFANTIL",
+      "URGENCIAS - CONSULTA",
+      "URGENCIAS - PROCEDIMIENTOS",
+      "URGENCIAS GINECOLOGIA CONSULTA",
+      "URGENCIAS INTERCONSULTA ESPECIALIZADA",
+      "URGENCIAS OBSERVACION ADULTOS",
+      "URGENCIAS OBSERVACION PEDIATRIA"
+     ]
+    },
+    {
+     "name": "area_code",
+     "type": "string",
+     "description": "Codigo del area que presto el servicio."
+    },
+    {
+     "name": "specialty",
+     "type": "string",
+     "description": "Especialidad medica asociada al servicio.",
+     "values": [
+      "ANESTESIOLOGIA",
+      "AUDITORIA MEDICA",
+      "AUXILIAR DE ENFERMERIA",
+      "BACTERIOLOGIA",
+      "CARDIOLOGIA",
+      "CIRUGIA CARDIOVASCULAR",
+      "CIRUGIA DE TORAX",
+      "CIRUGIA GENERAL",
+      "CIRUGIA MAXILOFACIAL",
+      "CIRUGIA PEDIATRICA",
+      "CIRUGIA PLASTICA",
+      "CIRUGIA VASCULAR",
+      "DOLOR Y CUIDADOS PALIATIVOS",
+      "FISIATRIA - A",
+      "FISIOTERAPIA",
+      "FONOAUDIOLOGIA",
+      "GASTROENTEROLOGIA",
+      "GASTROENTEROLOGIA PEDIATRICA",
+      "GINECOLOGIA Y OBSTETRICIA",
+      "INFECTOLOGIA",
+      "INFECTOLOGIA PEDIATRICA",
+      "INTENSIVISTA PEDIATRA",
+      "MEDICINA CRITICA Y CUIDADO INTENSIVO",
+      "MEDICINA FAMILIAR",
+      "MEDICINA GENERAL",
+      "MEDICINA INTERNA",
+      "NEFROLOGIA",
+      "NEUMOPEDIATRIA",
+      "NEUROLOGIA",
+      "NEUROPEDIATRIA",
+      "NUTRICION",
+      "OFTALMOLOGIA",
+      "ORTOPEDIA Y TRAUMATOLOGIA",
+      "OTORRINOLARINGOLOGIA",
+      "OTRA ESPECIALIDAD NO CLASIFICADA",
+      "PEDIATRA",
+      "PEDIATRA CARDIOLOGO",
+      "PEDIATRA NEONATOLOGO",
+      "PERINATOLOGIA",
+      "PSICOLOGIA",
+      "PSIQUIATRIA",
+      "RADIOLOGO",
+      "REUMATOLOGIA",
+      "TECNICO RAYOS X",
+      "TERAPIA RESPIRATORIA",
+      "TRABAJO SOCIAL",
+      "UROLOGIA"
+     ]
+    },
+    {
+     "name": "code",
+     "type": "string",
+     "description": "Codigo CUPS del servicio o procedimiento."
+    },
+    {
+     "name": "procedure_name",
+     "type": "string",
+     "description": "Nombre del procedimiento (CUPS), si esta en el catalogo HIS."
+    },
+    {
+     "name": "provided_at",
+     "type": "date",
+     "description": "Fecha y hora en que se presto el servicio."
+    }
+   ],
+   "measures": [
+    {
+     "name": "quantity",
+     "description": "Cantidad de unidades del servicio prestadas."
+    }
+   ]
+  },
+  {
+   "dataset": "medications",
+   "description": "Dispensaciones (consumo) de medicamentos e insumos durante un ingreso, con el nombre y el tipo del producto. No es inventario: el stock y los dias de inventario estan en \"medication_inventory\".",
+   "dimensions": [
+    {
+     "name": "code",
+     "type": "string",
+     "description": "Codigo del medicamento o insumo dispensado."
+    },
+    {
+     "name": "name",
+     "type": "string",
+     "description": "Nombre del medicamento o insumo."
+    },
+    {
+     "name": "kind",
+     "type": "string",
+     "description": "Tipo: medicamento o insumo.",
+     "values": [
+      "insumo",
+      "medicamento"
+     ]
+    },
+    {
+     "name": "area",
+     "type": "string",
+     "description": "Area donde se hizo la dispensacion.",
+     "values": [
+      "APOYO DIAGNOSTICO -  MATERNO FETAL - CONSULTA DE URGENCIAS",
+      "APOYO DIAGNOSTICO - LABORATORIO CLINICO",
+      "APOYO DIAGNOSTICO - MONITORIA FETAL",
+      "APOYO DIAGNOSTICO - PROCED. DE ENDOSCOPIA DIAGN. Y TERAP.",
+      "APOYO DIAGNOSTICO - RAYOS X",
+      "APOYO TERAPEUTICO - FARMACIA",
+      "APOYO TERAPEUTICO - FARMACIA DISPOSITIVOS MED UCI",
+      "APOYO TERAPEUTICO - FARMACIA DISPOSITIVOS MED UMI",
+      "APOYO TERAPEUTICO - FARMACIA MEDICAMENTOS UCI",
+      "APOYO TERAPEUTICO - FARMACIA UMI",
+      "APOYO TERAPEUTICO - REHABILITACION Y FISIOTERAPIA",
+      "APOYO TERAPEUTICO FARMACIA QUIROFANOS",
+      "APOYO TERAPEUTICO- FARMACIA DISPOS MED QUIROFANOS",
+      "APOYO TERAPEUTICO-FARMACIA AMBULATORIA",
+      "APOYO TERAPEUTICO-FARMACIO DISPOSITIVOS MEDICOS",
+      "H ESTANCIA GENERAL ADULTOS",
+      "H ESTANCIA GENERAL GINECOLOGIA",
+      "QUIROFANOS - CIRUGIA GENERAL",
+      "QUIROFANOS - CIRUGIA GINECOBSTETRICA",
+      "QUIROFANOS - OTRAS ESPECIALIDADES",
+      "QUIROFANOS - SALA DE PARTOS",
+      "QUIROFANOS - TRAUMATOLOGIA Y ORTOPEDIA",
+      "QUIROFANOS PEDIATRIA UMI - CARDIOLOGIA",
+      "QUIROFANOS PEDIATRIA UMI - CIRUGIA PEDIATRICA",
+      "QUIROFANOS PEDIATRIA UMI - TRAUMATOLOGIA",
+      "RECUPERACION QUIROFANOS",
+      "UCI ADULTOS CUIDADO INTENSIVO",
+      "UCI ADULTOS CUIDADO INTERMEDIO 2",
+      "UCI ADULTOS CUIDADOS INTERMEDIOS",
+      "UMI  NEONATOS  CUIDADO BASICO",
+      "UMI  NEONATOS  CUIDADO INTERMEDIO",
+      "UMI  UCIP CUIDADO INTERMEDIO",
+      "UMI - CONSULTA PEDIATRICA",
+      "UMI - OBSERVACION PEDIATRICA",
+      "UMI - PROCEDIMIENTOS PEDIATRICOS",
+      "UMI - SALA DE REHIDRATACION",
+      "UMI - SALA DE YESOS",
+      "UMI - SALA EMERGENCIAS PEDIATRICAS",
+      "UMI - SALA ERA",
+      "UMI HOSPITALIZACION - PEDIATRIA",
+      "UMI NEONATOS  CUIDADO INTENSIVO",
+      "UMI UCIP CUIDADO INTENSIVO",
+      "UNIDAD MATERNO INFANTIL",
+      "URGENCIAS - CONSULTA",
+      "URGENCIAS - PROCEDIMIENTOS",
+      "URGENCIAS GINECOLOGIA CONSULTA",
+      "URGENCIAS INTERCONSULTA ESPECIALIZADA",
+      "URGENCIAS OBSERVACION ADULTOS",
+      "URGENCIAS OBSERVACION PEDIATRIA"
+     ]
+    },
+    {
+     "name": "specialty",
+     "type": "string",
+     "description": "Especialidad asociada a la dispensacion.",
+     "values": [
+      "ANESTESIOLOGIA",
+      "AUXILIAR DE ENFERMERIA",
+      "CIRUGIA GENERAL",
+      "CIRUGIA MAXILOFACIAL",
+      "CIRUGIA PEDIATRICA",
+      "DOLOR Y CUIDADOS PALIATIVOS",
+      "FONOAUDIOLOGIA",
+      "GASTROENTEROLOGIA",
+      "GINECOLOGIA Y OBSTETRICIA",
+      "MEDICINA CRITICA Y CUIDADO INTENSIVO",
+      "MEDICINA GENERAL",
+      "MEDICINA INTERNA",
+      "NEFROLOGIA",
+      "NUTRICION",
+      "OFTALMOLOGIA",
+      "ORTOPEDIA Y TRAUMATOLOGIA",
+      "OTRA ESPECIALIDAD NO CLASIFICADA",
+      "PEDIATRA",
+      "PEDIATRA NEONATOLOGO",
+      "SEGURIDAD Y SALUD EN EL TRABAJO",
+      "TERAPIA RESPIRATORIA",
+      "TRABAJO SOCIAL",
+      "UROLOGIA"
+     ]
+    },
+    {
+     "name": "dispensed_at",
+     "type": "date",
+     "description": "Fecha y hora de la dispensacion."
+    }
+   ],
+   "measures": [
+    {
+     "name": "quantity",
+     "description": "Cantidad dispensada."
+    }
+   ]
+  },
+  {
+   "dataset": "bed_occupancy",
+   "description": "Ocupacion de camas por unidad en la fecha de corte de los datos HIS (el \"hoy\" de los datos): censo estimado de pacientes ingresados, camas fisicas y porcentaje de ocupacion. Misma cifra que el panel. Una fila por unidad.",
+   "dimensions": [
+    {
+     "name": "unit",
+     "type": "string",
+     "description": "Unidad hospitalaria.",
+     "values": [
+      "GINECO OBSTRETICIA",
+      "HOSPITALIZACION",
+      "PEDIATRIA",
+      "RECUPERACION",
+      "SALA PARTOS",
+      "UNIDAD DE CUIDADO BASICO",
+      "UNIDAD DE CUIDADO INTENSIVO",
+      "UNIDAD DE CUIDADO INTERMEDIO",
+      "URGENCIAS"
+     ]
+    }
+   ],
+   "measures": [
+    {
+     "name": "census",
+     "description": "Camas ocupadas (pacientes ingresados activos) en la fecha de corte."
+    },
+    {
+     "name": "physical_beds",
+     "description": "Camas fisicas de la unidad (capacidad)."
+    },
+    {
+     "name": "virtual_census",
+     "description": "Pacientes en camas virtuales (cuentan en el censo, no en la capacidad)."
+    },
+    {
+     "name": "occupancy_pct",
+     "description": "Ocupacion = censo / camas fisicas x 100 (puede superar 100). Nulo sin camas fisicas."
+    }
+   ]
+  },
+  {
+   "dataset": "medication_inventory",
+   "description": "Inventario de medicamentos con stock registrado por Farmacia: stock, consumo medio diario (dispensado en los 30 dias previos a la fecha de corte / 30) y dias de inventario (stock / consumo medio). Misma cifra que el panel. Una fila por medicamento.",
+   "dimensions": [
+    {
+     "name": "code",
+     "type": "string",
+     "description": "Codigo del medicamento o insumo."
+    },
+    {
+     "name": "name",
+     "type": "string",
+     "description": "Nombre del medicamento o insumo."
+    },
+    {
+     "name": "kind",
+     "type": "string",
+     "description": "Tipo: medicamento o insumo.",
+     "values": [
+      "medicamento",
+      "insumo"
+     ]
+    },
+    {
+     "name": "risk",
+     "type": "string",
+     "description": "Riesgo: CRITICAL (< 3 dias), LOW (< 7 dias), OK, o insufficient_data (sin consumo reciente).",
+     "values": [
+      "CRITICAL",
+      "LOW",
+      "OK",
+      "insufficient_data"
+     ]
+    }
+   ],
+   "measures": [
+    {
+     "name": "stock",
+     "description": "Unidades en stock."
+    },
+    {
+     "name": "avg_daily_consumption",
+     "description": "Consumo medio diario."
+    },
+    {
+     "name": "days_of_inventory",
+     "description": "Dias de inventario = stock / consumo medio diario. Nulo sin consumo."
+    }
+   ]
+  },
+  {
+   "dataset": "surgeries",
+   "description": "Programaciones de cirugia con el nombre del procedimiento. Sin fecha ni medidas numericas en el extracto: solo sirve para contar (count / count_distinct).",
+   "dimensions": [
+    {
+     "name": "procedure_code",
+     "type": "string",
+     "description": "Codigo del procedimiento quirurgico programado."
+    },
+    {
+     "name": "procedure_name",
+     "type": "string",
+     "description": "Nombre del procedimiento quirurgico, si esta en el catalogo HIS."
+    },
+    {
+     "name": "executed",
+     "type": "string",
+     "description": "\"si\", \"no\" o \"desconocido\" (desconocido = sin ingreso verificable en el extracto).",
+     "values": [
+      "si",
+      "no",
+      "desconocido"
+     ]
+    },
+    {
+     "name": "schedule_number",
+     "type": "string",
+     "description": "Numero de la programacion de cirugia."
+    }
+   ],
+   "measures": []
+  }
+ ]
+}

@@ -66,7 +66,7 @@ También: profundizar desde una **alerta** del briefing.
 | 8 | Flujo 5 pasos | Pregunta → respuesta útil |
 | 9 | Arquitectura | Diagrama Cliente · Servicios · Datos |
 | 10 | Secuencia | Flechas del FigJam |
-| 11 | Agente | Planner → Predictor → Recommender |
+| 11 | Agente | Comprensión → DSL con valores reales → Node → Respuesta verificada (+ Predictor) |
 | 12 | Entrega | Funciona hoy |
 | 13 | Tecnologías | Para qué sirve cada una |
 | 14 | Seguridad | La IA no manda sobre los datos |

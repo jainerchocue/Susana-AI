@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import hmac
+from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
@@ -17,6 +18,8 @@ class CatalogDimension(BaseModel):
     name: str
     type: str = "string"
     description: str = ""
+    # Vocabulario real (valores posibles) que manda Node: el agente filtra solo con estos.
+    values: list[str] = Field(default_factory=list, max_length=200)
 
 
 class CatalogMeasure(BaseModel):
@@ -36,21 +39,30 @@ class AskLimits(BaseModel):
     maxRows: int = 100
 
 
+class AskContext(BaseModel):
+    # "Hoy" de los datos (último ingreso importado): "hoy"/"esta semana" se calculan desde aquí.
+    referenceDate: str | None = None
+    # Primer registro HIS: un periodo que empieza antes está incompleto.
+    dataStart: str | None = None
+    timezone: str = "America/Bogota"
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
-    ticket: str
+    ticket: str = Field(..., min_length=1, max_length=200)
     catalog: list[CatalogEntry] = Field(default_factory=list)
     limits: AskLimits = Field(default_factory=AskLimits)
+    context: AskContext = Field(default_factory=AskContext)
 
 
 class AskResponse(BaseModel):
-    status: str  # ok | cannot_answer
-    answer: str
+    status: Literal["ok", "cannot_answer"]
+    answer: str = Field(..., max_length=4000)
 
 
 def _require_ask_key(x_internal_key: str | None) -> None:
-    expected = settings.expected_ask_key()
-    if not expected or not x_internal_key or x_internal_key != expected:
+    expected = settings.agent_api_key.strip()
+    if not expected or not x_internal_key or not hmac.compare_digest(x_internal_key, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="clave invalida",
@@ -75,5 +87,6 @@ async def v1_ask(
         ticket=body.ticket,
         catalog=catalog_raw,
         limits=body.limits.model_dump(),
+        context=body.context.model_dump(),
     )
     return AskResponse(status=result["status"], answer=result["answer"])

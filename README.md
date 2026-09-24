@@ -72,7 +72,7 @@ flowchart LR
 | Pieza | Carpeta | Puerto | Rol |
 |-------|---------|--------|-----|
 | Node BFF | `src/` | `:3000` / `:3001` | Auth, RBAC, DSL→SQL, alertas, CRUD HIS |
-| Agente IA/ML | `agent/` | `:8000` | Planner + Predictor (RF) + Recommender |
+| Agente IA/ML | `agent/` | `:8000` | NLU + Planner DSL + Narrador verificado + Predictor (RF) |
 | Frontend | `frontend/` | `:5173` | Dashboard, alertas, chat |
 | Datos | `prisma/`, `data/raw/` | — | Esquema e import HIS |
 
@@ -102,18 +102,15 @@ sequenceDiagram
     NodeInternal->>Postgres: Validar DSL y ejecutar
     Postgres-->>NodeInternal: rows
     NodeInternal-->>Agent: rows · rowCount
-    Agent->>NodeInternal: consulta_serie_temporal
-    NodeInternal->>Postgres: Serie diaria admissions
-    Postgres-->>NodeInternal: serie
-    NodeInternal-->>Agent: serie
-    Note over Agent: Predictor RF / tendencia · Recommender
+    Note over Agent: Narrador: solo cifras de las filas · Predictor si se pide proyección
     Agent-->>NodePublic: status · answer
     NodePublic-->>Frontend: answer · queries
     Frontend-->>User: Datos · Anticipación · Decisión
 ```
 
-En el agente, tras recibir filas: **Planner** → filas HIS → **Predictor**
-(Random Forest si ≥12 puntos; si no, tendencia) → **Recommender** → respuesta.
+En el agente: **NLU** (tema, unidad, periodo, filtros) → **Planner** (DSL con valores reales del
+catálogo) → Node ejecuta → **Narrador** (solo cifras de las filas, alcance y fecha de corte) →
+**Predictor** si se pide proyección (Random Forest si ≥12 puntos; si no, promedio reciente).
 
 | Paso | Endpoint | Auth |
 |------|----------|------|
@@ -248,9 +245,8 @@ copy .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-Guía de código del agente: [`agent/GUIA_CODIGO.md`](agent/GUIA_CODIGO.md) ·
-tareas AI: [`agent/TAREAS.md`](agent/TAREAS.md) · setup corto:
-[`agent/README.md`](agent/README.md).
+Flujo, garantías y tests del agente: [`agent/README.md`](agent/README.md) ·
+tareas AI: [`agent/TAREAS.md`](agent/TAREAS.md).
 
 ### 7.3 Frontend
 
@@ -489,11 +485,11 @@ público).
 | [`PRESENTACION.md`](PRESENTACION.md) | Guión del pitch + 4 preguntas oficiales del reto |
 | [`docs/presentacion/index.html`](docs/presentacion/index.html) | Diapositivas profesionales (abrir en navegador, tecla F) |
 | [`agent/README.md`](agent/README.md) | Arranque rápido del agente |
-| [`agent/GUIA_CODIGO.md`](agent/GUIA_CODIGO.md) | Tour del código Python |
+| [`agent/README.md`](agent/README.md) | Arranque, flujo y garantías del agente Python |
 | [`agent/DIAGRAMA_FLUJO.md`](agent/DIAGRAMA_FLUJO.md) | Arquitectura + secuencia (espejo del FigJam) |
 | [FigJam arquitectura](https://www.figma.com/board/5XE6rZuQFlOQedlwHzcYEK/Agente-Hospital-Intelligence---secuencia) | Diseño visual de secuencia y componentes |
 | [`docs/diagrams/arquitectura-figjam.png`](docs/diagrams/arquitectura-figjam.png) | Captura del board integrada en §2 |
-| [`agent/DIAGRAMA_AGENTE_AI_ML.md`](agent/DIAGRAMA_AGENTE_AI_ML.md) | Secuencia interna AskService → Planner → Predictor → Recommender |
+| [`agent/DIAGRAMA_AGENTE_AI_ML.md`](agent/DIAGRAMA_AGENTE_AI_ML.md) | Secuencia interna AskService → NLU → Planner → Node → Narrador |
 | [`agent/TAREAS.md`](agent/TAREAS.md) | Estado del trabajo del equipo AI |
 | [`frontend/README.md`](frontend/README.md) | UI React (rama/carpeta frontend) |
 | [`SECURITY.md`](SECURITY.md) | Política de reporte y garantías |
@@ -518,8 +514,9 @@ Susana-AI/
 │   ├── modules/              ← dominio (alerts, assistant, HIS, …)
 │   └── scripts/              ← import HIS, purge, …
 ├── agent/                    ← FastAPI + ML
-│   ├── app/bridge/           ← ask_service, dsl_planner, node_client
-│   ├── app/agent/            ← predictor, recommender, …
+│   ├── app/bridge/           ← ask_service, nlu, planner, dsl, narrator, llm, node_client
+│   ├── app/agent/            ← predictor
+│   ├── tests/                ← pytest (catálogo real exportado de Node)
 │   └── DIAGRAMA_*.md
 ├── frontend/                 ← React (rama frontend / local)
 ├── tests/

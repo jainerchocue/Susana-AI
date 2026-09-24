@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../../config/env';
+import { prisma } from '../../core/db/prisma';
 import { AppError } from '../../core/http/errors';
 import { ErrorCode } from '../../core/http/http-status';
 import { AUDIT, auditar, type RequestMeta } from '../../core/audit/audit';
 import type { Actor } from '../../core/rbac/guards';
 import { preguntarAgente } from '../../core/agent/client';
 import { datasetsPara, describirParaAgente } from './assistant.catalog';
+import { HIS_ZONA_HORARIA, fechaReferencia } from '../his/his.periodo';
 import { emitirTicket, guardarResultado, leerResultados, revocarTicket, usarTicket } from './assistant.tickets';
 import { ejecutarConsulta, validarConsulta, type ResultadoConsulta } from './assistant.query';
 import type { AskInput, InternalQueryInput, QuerySpec } from './assistant.schemas';
@@ -48,11 +50,22 @@ export async function preguntar(
   });
 
   try {
+    // Sin datos HIS importados no hay "hoy" de referencia: el agente lo sabe y no inventa fechas.
+    const [catalog, referencia, inicio] = await Promise.all([
+      describirParaAgente(datasets),
+      fechaReferencia().catch(() => null),
+      prisma.admission.aggregate({ _min: { admittedAt: true } }).then((r) => r._min.admittedAt),
+    ]);
     const respuesta = await preguntarAgente({
       question: input.question,
       ticket,
-      catalog: describirParaAgente(datasets),
+      catalog,
       limits: { maxQueries, maxRows: env.AGENT_MAX_ROWS },
+      context: {
+        referenceDate: referencia?.toISOString() ?? null,
+        dataStart: inicio?.toISOString() ?? null,
+        timezone: HIS_ZONA_HORARIA,
+      },
       requestId,
     });
 

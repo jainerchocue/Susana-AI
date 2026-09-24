@@ -23,7 +23,7 @@ import type {
  * hasta que FARMACIA lo registre por API (`PUT /:code/stock`).
  */
 
-const DIAS_CONSUMO_MEDIO = 30;
+export const DIAS_CONSUMO_MEDIO = 30;
 const TOP_CONSUMO = 10;
 
 type Riesgo = 'CRITICAL' | 'LOW' | 'OK' | 'insufficient_data';

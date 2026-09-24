@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../core/db/prisma';
 import { redondearDecimales } from '../../core/http/numero';
 import { HIS_ZONA_HORARIA } from '../his/his.periodo';
@@ -37,9 +38,14 @@ interface FilaOcupacion {
   virtualCensus: number;
 }
 
-/** Censo, capacidad y ocupacion por unidad EN UN INSTANTE concreto. */
-export async function ocupacionPorUnidad(instante: Date): Promise<OcupacionUnidad[]> {
-  const filas = await prisma.$queryRaw<FilaOcupacion[]>`
+/**
+ * SQL de `ocupacionPorUnidad` con el instante como FRAGMENTO SQL (un parametro
+ * o una subconsulta). Lo reutiliza el dataset `bed_occupancy` del asistente
+ * con el instante = fecha de referencia HIS, para que el chat y el panel den
+ * exactamente la misma cifra.
+ */
+export function sqlOcupacionPorUnidad(instante: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
     WITH capacidad AS (
       SELECT unit, COUNT(DISTINCT "bedCode")::int AS "physicalBeds"
       FROM his_admissions
@@ -51,8 +57,8 @@ export async function ocupacionPorUnidad(instante: Date): Promise<OcupacionUnida
         COUNT(*)::int AS census,
         COUNT(*) FILTER (WHERE "virtualBed")::int AS "virtualCensus"
       FROM his_admissions
-      WHERE "admittedAt" <= ${instante}::timestamptz
-        AND COALESCE("lastActivityAt", "admittedAt") >= ${instante}::timestamptz
+      WHERE "admittedAt" <= ${instante}
+        AND COALESCE("lastActivityAt", "admittedAt") >= ${instante}
       GROUP BY unit
     )
     SELECT COALESCE(cap.unit, c.unit) AS unit,
@@ -63,6 +69,11 @@ export async function ocupacionPorUnidad(instante: Date): Promise<OcupacionUnida
     FULL OUTER JOIN censo c ON c.unit = cap.unit
     ORDER BY unit
   `;
+}
+
+/** Censo, capacidad y ocupacion por unidad EN UN INSTANTE concreto. */
+export async function ocupacionPorUnidad(instante: Date): Promise<OcupacionUnidad[]> {
+  const filas = await prisma.$queryRaw<FilaOcupacion[]>(sqlOcupacionPorUnidad(Prisma.sql`${instante}::timestamptz`));
 
   return filas.map((f) => ({
     unit: f.unit,

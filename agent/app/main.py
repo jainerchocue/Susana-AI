@@ -10,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import api_router
 from app.api.routes import gateway
 from app.config.settings import settings
 
@@ -54,11 +53,8 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Contrato oficial con Node (Susana-AI)
+# Contrato con Node (Susana-AI): GET /health y POST /v1/ask.
 app.include_router(gateway.router)
-
-# Rutas internas opcionales (analyze/interpret) — el producto usa /v1/ask
-app.include_router(api_router)
 
 
 @app.middleware("http")

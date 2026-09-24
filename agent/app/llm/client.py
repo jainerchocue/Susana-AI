@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from functools import lru_cache
 from typing import Any
 
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI
 
 from app.config.settings import settings
 
@@ -19,21 +18,11 @@ class LLMClient:
         self.model = settings.llm_model
         self.timeout = settings.llm_timeout_seconds
         self.enabled = settings.llm_enabled and bool(settings.openrouter_api_key)
-        self._sync: OpenAI | None = None
         self._async: AsyncOpenAI | None = None
 
     @property
     def is_available(self) -> bool:
         return self.enabled
-
-    def _sync_client(self) -> OpenAI:
-        if self._sync is None:
-            self._sync = OpenAI(
-                api_key=settings.openrouter_api_key,
-                base_url=settings.openrouter_base_url,
-                timeout=self.timeout,
-            )
-        return self._sync
 
     def _async_client(self) -> AsyncOpenAI:
         if self._async is None:
@@ -41,6 +30,8 @@ class LLMClient:
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
                 timeout=self.timeout,
+                # Sin reintentos internos: el presupuesto de la pregunta lo controla bridge/llm.py.
+                max_retries=0,
             )
         return self._async
 
@@ -74,22 +65,6 @@ class LLMClient:
             "completion_tokens": getattr(response.usage, "completion_tokens", None) if response.usage else None,
         }
         return content, usage
-
-    async def chat_json(
-        self,
-        messages: list[dict[str, str]],
-        **kwargs: Any,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        content, usage = await self.chat(messages, response_json=True, **kwargs)
-        try:
-            return json.loads(content), usage
-        except json.JSONDecodeError:
-            # Try to extract JSON object from markdown fences
-            start = content.find("{")
-            end = content.rfind("}")
-            if start >= 0 and end > start:
-                return json.loads(content[start : end + 1]), usage
-            raise
 
 
 @lru_cache
