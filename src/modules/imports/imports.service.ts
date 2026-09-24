@@ -203,6 +203,14 @@ async function procesarEnSegundoPlano(
  * candado ya se resolvieron antes, en `verificarYReservar`) y dispara el
  * procesamiento en segundo plano sin esperarlo: la peticion HTTP responde
  * 202 con el job recien creado, el resto ocurre despues.
+ *
+ * El controlador ya escribio `rutaArchivo` en disco ANTES de llamar aqui
+ * (`escribirCuerpoATemporal`): a partir de este punto, ESTA funcion es dueña
+ * de ese temporal. Si algo falla despues de eso (409 por concurrencia, un
+ * error de Prisma al crear el job...) y no llega a arrancar
+ * `procesarEnSegundoPlano` (que es quien lo borra al terminar, con exito o
+ * sin el), nadie mas lo haria: de ahi el `catch` que lo borra en cada camino
+ * de error, no solo en el feliz.
  */
 export async function crearTrabajo(
   tabla: TablaImportable,
@@ -212,7 +220,12 @@ export async function crearTrabajo(
   actorId: string,
   meta: RequestMeta,
 ): Promise<PublicImportJob> {
-  await verificarYReservar();
+  try {
+    await verificarYReservar();
+  } catch (error) {
+    await borrarTemporal(rutaArchivo);
+    throw error;
+  }
 
   let job;
   try {
@@ -221,6 +234,7 @@ export async function crearTrabajo(
     });
   } catch (error) {
     liberar();
+    await borrarTemporal(rutaArchivo);
     throw error;
   }
 
@@ -233,7 +247,9 @@ export async function crearTrabajo(
     ...meta,
   });
 
-  // Fire-and-forget: el resultado se consulta con GET /imports/:id.
+  // Fire-and-forget: a partir de aqui, el propio job (en su `finally`) es
+  // quien borra el temporal, gane o pierda la importacion. El resultado se
+  // consulta con GET /imports/:id.
   void procesarEnSegundoPlano(job.id, tabla, rutaArchivo, actorId, meta);
 
   return aPublico(job);

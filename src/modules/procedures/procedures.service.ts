@@ -53,11 +53,12 @@ export async function create(
 
   return prisma.$transaction(async (tx) => {
     const creado = await tx.procedure.create({ data: input });
+    // `targetId` es @db.Uuid en AuditLog (C0): el codigo (clave natural,
+    // string) no encaja ahi, asi que va en `metadata`.
     await auditarEnTx(tx, {
       action: AUDIT.registroCreado,
       actorId,
       targetType: 'procedure',
-      targetId: creado.code,
       metadata: { code: creado.code },
       ...meta,
     });
@@ -80,8 +81,7 @@ export async function update(
       action: AUDIT.registroActualizado,
       actorId,
       targetType: 'procedure',
-      targetId: code,
-      metadata: { cambios: Object.keys(input) },
+      metadata: { code, cambios: Object.keys(input) },
       ...meta,
     });
     return actualizado;
@@ -112,7 +112,6 @@ export async function remove(code: string, actorId: string, meta: RequestMeta): 
       action: AUDIT.registroBorrado,
       actorId,
       targetType: 'procedure',
-      targetId: code,
       metadata: { code },
       ...meta,
     });

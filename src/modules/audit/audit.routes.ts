@@ -19,14 +19,14 @@ router.get(
   // invertido; se corrige de paso al tocar este archivo para TC5).
   validate({ query: listAuditQuerySchema }),
   requirePermissions(PERMISSIONS.audit.read),
-  auditController.list,
+  controller.list,
 );
 
 router.get(
   '/:id',
   validate({ params: idParamSchema }),
   requirePermissions(PERMISSIONS.audit.read),
-  auditController.getById,
+  controller.getById,
 );
 
 export default router;

@@ -1054,9 +1054,27 @@ const DELIMITADORES_CANDIDATOS = ['|', ',', ';'] as const;
  */
 async function detectarDelimitador(ruta: string, cabeceraEsperada: readonly string[]): Promise<string> {
   const primeraLinea = await leerPrimeraLinea(ruta);
+  let candidatoConMismoNumeroDeColumnas: { delimitador: string; campos: string[] } | null = null;
+
   for (const delimitador of DELIMITADORES_CANDIDATOS) {
     const [campos] = parsearCsvTexto(primeraLinea, delimitador);
-    if (campos && cabeceraCoincide(campos, cabeceraEsperada)) return delimitador;
+    if (!campos) continue;
+    if (cabeceraCoincide(campos, cabeceraEsperada)) return delimitador;
+    // El separador correcto suele ser el UNICO que produce el numero exacto de
+    // columnas esperado (los otros dos, sobre la misma linea, casi siempre
+    // producen una sola columna gigante o un numero muy distinto). Guardarlo
+    // permite dar un error de "cabecera invalida" (que columna difiere) en vez
+    // de un generico "separador no reconocido" cuando el separador SI era el
+    // correcto y lo que falla es el nombre/orden de alguna columna.
+    if (!candidatoConMismoNumeroDeColumnas && campos.length === cabeceraEsperada.length) {
+      candidatoConMismoNumeroDeColumnas = { delimitador, campos };
+    }
+  }
+
+  if (candidatoConMismoNumeroDeColumnas) {
+    throw new Error(
+      mensajeCabeceraInvalida(ruta, candidatoConMismoNumeroDeColumnas.delimitador, cabeceraEsperada, candidatoConMismoNumeroDeColumnas.campos),
+    );
   }
   throw new Error(
     `No se reconoce el separador de la cabecera (se probaron "|", "," y ";").\n` +
@@ -1122,16 +1140,23 @@ async function idsAdmisionesExistentes(ids: number[]): Promise<Set<number>> {
   return new Set(filas.map((f) => f.id));
 }
 
-/** Codigos de `his_procedures`/`his_medications` que ya existen, de entre los pedidos. */
-async function codigosProcedimientosExistentes(codigos: string[]): Promise<Set<string>> {
-  if (codigos.length === 0) return new Set();
-  const filas = await prisma.procedure.findMany({ where: { code: { in: codigos } }, select: { code: true } });
+/**
+ * TODOS los codigos ya existentes en el catalogo (Procedure/Medication).
+ * Estas dos tablas son PEQUEÑAS incluso con el extracto real completo (~2.061
+ * y ~1.327 codigos, B0): cargarlas enteras UNA vez, al principio de
+ * `importarServiciosLote`/`importarDispensacionesLote`, es mas barato que
+ * repetir una consulta "¿ya existe este codigo?" en cada uno de los ~116
+ * lotes de 5.000 filas (579.465 dispensaciones / 5.000), que ademas
+ * dispararia un `createMany` de relleno en casi todos ellos (los codigos ya
+ * estarian todos alli, pero el lote no lo sabria hasta preguntar).
+ */
+async function todosLosCodigosProcedimientos(): Promise<Set<string>> {
+  const filas = await prisma.procedure.findMany({ select: { code: true } });
   return new Set(filas.map((f) => f.code));
 }
 
-async function codigosMedicamentosExistentes(codigos: string[]): Promise<Set<string>> {
-  if (codigos.length === 0) return new Set();
-  const filas = await prisma.medication.findMany({ where: { code: { in: codigos } }, select: { code: true } });
+async function todosLosCodigosMedicamentos(): Promise<Set<string>> {
+  const filas = await prisma.medication.findMany({ select: { code: true } });
   return new Set(filas.map((f) => f.code));
 }
 
@@ -1453,7 +1478,7 @@ async function importarServiciosLote(
   avisos: string[],
 ): Promise<AcumuladorTabla> {
   const acc = nuevoAcumulador();
-  const codigosConocidos = await codigosProcedimientosExistentes([]); // Set vacio: se rellena bajo demanda por lote.
+  const codigosConocidos = await todosLosCodigosProcedimientos();
   let huerfanos = 0;
 
   await porLotes(leerFilasCsv(ruta, delimitador, CABECERA_SERVICIOS), tamanoLote, async (lote) => {
@@ -1510,7 +1535,7 @@ async function importarDispensacionesLote(
   avisos: string[],
 ): Promise<AcumuladorTabla> {
   const acc = nuevoAcumulador();
-  const codigosConocidos = await codigosMedicamentosExistentes([]);
+  const codigosConocidos = await todosLosCodigosMedicamentos();
   let huerfanos = 0;
 
   await porLotes(leerFilasCsv(ruta, delimitador, CABECERA_MEDICAMENTOS), tamanoLote, async (lote) => {

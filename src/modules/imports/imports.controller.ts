@@ -20,7 +20,7 @@ import type { TablaImportable } from '../his/his.import';
  */
 
 function query(req: Request): FileNameQuery {
-  return req.query as unknown as FileNameQuery;
+  return req.query;
 }
 
 function tablaParam(req: Request): TablaImportable {
@@ -44,7 +44,12 @@ async function escribirCuerpoATemporal(req: Request): Promise<{ rutaArchivo: str
 
   const contentLength = Number(req.headers['content-length'] ?? 0);
   if (contentLength > limiteBytes) {
-    req.destroy();
+    // OJO: NO se llama a `req.destroy()` aqui. Cortar el socket antes de que
+    // Express pueda escribir la respuesta 413 hace que el cliente reciba un
+    // "socket hang up" (ECONNRESET) en vez del 413: el error se pierde por el
+    // camino. Basta con no seguir leyendo el cuerpo y dejar que el error
+    // handler responda con normalidad; Node drena o descarta el resto del
+    // cuerpo al cerrar la conexion tras la respuesta.
     throw AppError.payloadTooLarge();
   }
 

@@ -91,12 +91,13 @@ export async function create(
 
     await recalcularEjecucion(tx, fila.id, input.admissionId);
 
+    // `targetId` es @db.Uuid en AuditLog (C0): el id autoincremental (numero)
+    // no encaja ahi, asi que va en `metadata`.
     await auditarEnTx(tx, {
       action: AUDIT.registroCreado,
       actorId,
       targetType: 'surgery-schedule',
-      targetId: String(fila.id),
-      metadata: { scheduleNumber: input.scheduleNumber, admissionId: input.admissionId },
+      metadata: { id: fila.id, scheduleNumber: input.scheduleNumber, admissionId: input.admissionId },
       ...meta,
     });
 
@@ -135,8 +136,7 @@ export async function update(
       action: AUDIT.registroActualizado,
       actorId,
       targetType: 'surgery-schedule',
-      targetId: String(id),
-      metadata: { cambios: Object.keys(input) },
+      metadata: { id, cambios: Object.keys(input) },
       ...meta,
     });
 
@@ -157,8 +157,7 @@ export async function remove(id: number, actorId: string, meta: RequestMeta): Pr
       action: AUDIT.registroBorrado,
       actorId,
       targetType: 'surgery-schedule',
-      targetId: String(id),
-      metadata: {},
+      metadata: { id },
       ...meta,
     });
   });

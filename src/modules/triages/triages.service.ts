@@ -67,7 +67,8 @@ export async function create(input: CreateTriageInput, actor: Actor, meta: Reque
       actorId: actor.id,
       action: AUDIT.registroCreado,
       targetType: 'triage',
-      targetId: String(input.id),
+      // `auditLog.targetId` es UUID en BD: los ids del HIS son enteros, asi
+      // que viajan solo en `metadata` (igual en el resto de este modulo).
       metadata: { id: input.id, campos: Object.keys(input) },
       ...meta,
     });
@@ -95,7 +96,6 @@ export async function update(
       actorId: actor.id,
       action: AUDIT.registroActualizado,
       targetType: 'triage',
-      targetId: String(id),
       metadata: { id, campos: Object.keys(input) },
       ...meta,
     });
@@ -125,7 +125,6 @@ export async function remove(id: number, actor: Actor, meta: RequestMeta): Promi
       actorId: actor.id,
       action: AUDIT.registroBorrado,
       targetType: 'triage',
-      targetId: String(id),
       metadata: { id },
       ...meta,
     });

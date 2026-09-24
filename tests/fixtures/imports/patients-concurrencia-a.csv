@@ -1,0 +1,2 @@
+TipoDocumento,IdPaciente,NombrePaciente,FechaNacimiento,Sexo,Asegurador,Regimen,Departamento,Municipio,Zona
+CC,9000501,ZX,1990-01-01,Masculino,EPS SURA,Contributivo,CAUCA,POPAYAN,Urbana

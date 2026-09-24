@@ -1,0 +1,3 @@
+OidTriage,FechaTriage,MotivoConsulta,TensionArterial,FrecuenciaCardiaca,FrecuenciaRespiratoria,Temperatura,IdPaciente2,CodigoTriage,ClasificacionTriage
+"9000001","2026-06-01 07:50:00","DOLOR TORACICO","120/80","78","16","36.5","9000001","21","EMERGENCIA ADULTOS - TRIAGE 2 (AMARILLO)"
+"9000002","2026-06-02 07:55:00","FIEBRE","110/70","90","20","37.0","9000002","22","PEDIATRIA URGENCIAS - TRIAGE 3 (VERDE)"

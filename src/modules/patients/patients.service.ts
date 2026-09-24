@@ -146,7 +146,6 @@ export async function update(
       actorId: actor.id,
       action: AUDIT.registroActualizado,
       targetType: 'patient',
-      targetId: String(id),
       metadata: { id, campos: Object.keys(input) },
       ...meta,
     });
@@ -177,7 +176,6 @@ export async function remove(id: number, actor: Actor, meta: RequestMeta): Promi
       actorId: actor.id,
       action: AUDIT.registroBorrado,
       targetType: 'patient',
-      targetId: String(id),
       metadata: { id },
       ...meta,
     });

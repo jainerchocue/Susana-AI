@@ -14,8 +14,17 @@ import {
   setRolePermissionsSchema,
   updateRoleSchema,
 } from '../../modules/roles/roles.schemas';
-import { listAuditQuerySchema } from '../../modules/audit/audit.schemas';
-import { listAlertsQuerySchema, updateAlertSchema } from '../../modules/alerts/alerts.schemas';
+import { auditEntryResponseSchema, listAuditQuerySchema } from '../../modules/audit/audit.schemas';
+import {
+  alertRuleResponseSchema,
+  createManualAlertSchema,
+  evaluateAlertsResponseSchema,
+  listAlertsQuerySchema,
+  publicAlertResponseSchema,
+  ruleTypeParamSchema,
+  updateAlertSchema,
+  updateRuleSchema,
+} from '../../modules/alerts/alerts.schemas';
 import { askSchema, assistantResponseSchema } from '../../modules/assistant/assistant.schemas';
 import {
   dashboardDemandResponseSchema,
@@ -558,6 +567,19 @@ export const registroOpenApi: RutaDocumentada[] = [
     description: 'Requiere audit:read. La tabla es append-only: no hay escritura por API.',
     auth: true,
     query: listAuditQuerySchema,
+    response: auditEntryResponseSchema,
+    paginated: true,
+  },
+  {
+    method: 'get',
+    path: '/audit/{id}',
+    tag: 'audit',
+    summary: 'Ver un registro de auditoria',
+    description: 'Requiere audit:read. Mismo DTO que el listado.',
+    auth: true,
+    params: idParamSchema,
+    response: auditEntryResponseSchema,
+    errors: [404],
   },
 
   // ─── alerts ────────────────────────────────────────────────────────────────
@@ -571,6 +593,24 @@ export const registroOpenApi: RutaDocumentada[] = [
       'del actor (medications:read/services:read/surgeries:read via alcancesPorPermiso).',
     auth: true,
     query: listAlertsQuerySchema,
+    response: publicAlertResponseSchema,
+    paginated: true,
+  },
+  {
+    method: 'post',
+    path: '/alerts',
+    tag: 'alerts',
+    summary: 'Crear una alerta manual',
+    description:
+      'Requiere alerts:manage. Para un problema que el motor no detecta. `source` sale "manual" y ' +
+      'value/threshold se guardan a 0 (no hay metrica real detras, TC5). Solo se puede crear en un ' +
+      'ambito visible para el actor (alcancesPorPermiso); fuera de ambito responde 403. El motor NUNCA ' +
+      'resuelve ni pisa una alerta manual (alerts.service.ts#sincronizar filtra por source).',
+    auth: true,
+    body: createManualAlertSchema,
+    status: 201,
+    response: publicAlertResponseSchema,
+    errors: [403],
   },
   {
     method: 'get',
@@ -580,6 +620,8 @@ export const registroOpenApi: RutaDocumentada[] = [
     description: 'Requiere alerts:read. Fuera del ambito del actor responde 404, igual que un id inexistente.',
     auth: true,
     params: idParamSchema,
+    response: publicAlertResponseSchema,
+    errors: [404],
   },
   {
     method: 'patch',
@@ -592,6 +634,21 @@ export const registroOpenApi: RutaDocumentada[] = [
     auth: true,
     params: idParamSchema,
     body: updateAlertSchema,
+    response: publicAlertResponseSchema,
+    errors: [404, 409],
+  },
+  {
+    method: 'delete',
+    path: '/alerts/{id}',
+    tag: 'alerts',
+    summary: 'Borrar una alerta',
+    description:
+      'Requiere alerts:manage. Solo alertas manuales o RESOLVED; cualquier otra devuelve 409 ' +
+      '(una alerta abierta del motor la recrearia la siguiente evaluacion).',
+    auth: true,
+    params: idParamSchema,
+    status: 204,
+    errors: [404, 409],
   },
   {
     method: 'post',
@@ -600,9 +657,49 @@ export const registroOpenApi: RutaDocumentada[] = [
     summary: 'Disparar una evaluacion manual del motor de alertas',
     description:
       'Requiere alerts:manage. Sin cuerpo. Evalua las mismas metricas HIS que el job periodico ' +
-      '(ALERT_EVAL_INTERVAL_MINUTES) y sincroniza el estado de las alertas. Responde ' +
-      '{ creadas, actualizadas, resueltas, evaluadoEn }.',
+      '(ALERT_EVAL_INTERVAL_MINUTES), con las reglas y umbrales de `AlertRule` (BD), y sincroniza ' +
+      'el estado de las alertas.',
     auth: true,
+    response: evaluateAlertsResponseSchema,
+  },
+  {
+    method: 'get',
+    path: '/alerts/rules',
+    tag: 'alerts',
+    summary: 'Listar las reglas del motor (umbrales y activacion)',
+    description:
+      'Requiere alerts:read. Las 5 reglas (una por tipo de alerta); los tipos los define el motor: ' +
+      'no se crean ni se borran por API, solo se activan/desactivan y se cambian sus umbrales.',
+    auth: true,
+    response: z.array(alertRuleResponseSchema),
+  },
+  {
+    method: 'get',
+    path: '/alerts/rules/{type}',
+    tag: 'alerts',
+    summary: 'Ver una regla del motor',
+    description: 'Requiere alerts:read.',
+    auth: true,
+    params: ruleTypeParamSchema,
+    response: alertRuleResponseSchema,
+    errors: [404],
+  },
+  {
+    method: 'patch',
+    path: '/alerts/rules/{type}',
+    tag: 'alerts',
+    summary: 'Activar/desactivar una regla o cambiar sus umbrales',
+    description:
+      'Requiere system:manage (no alerts:manage: cambiar el criterio del motor para TODOS los ' +
+      'actores es administracion del sistema, no gestion de alertas). Una regla desactivada deja de ' +
+      'generar alertas y resuelve las abiertas de su tipo en la siguiente evaluacion. Coherencia: en ' +
+      'LOW_STOCK criticalThreshold < warningThreshold; en el resto (con nivel CRITICAL), > . Los tipos ' +
+      'de un solo nivel (DEMAND_SPIKE, SURGERY_CANCELLATIONS) rechazan un criticalThreshold no nulo.',
+    auth: true,
+    params: ruleTypeParamSchema,
+    body: updateRuleSchema,
+    response: alertRuleResponseSchema,
+    errors: [404],
   },
 
   // ─── assistant ─────────────────────────────────────────────────────────────

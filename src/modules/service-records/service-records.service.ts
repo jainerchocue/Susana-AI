@@ -143,12 +143,14 @@ export async function create(
     // de los ingresos afectados").
     await recalcularDerivados(tx, { admissionIds: [input.admissionId] });
 
+    // `targetId` es @db.Uuid en AuditLog (C0): las claves naturales del HIS
+    // (enteras) no encajan ahi, asi que el id va en `metadata`, como pide C0
+    // ("metadata = id y campos cambiados").
     await auditarEnTx(tx, {
       action: AUDIT.registroCreado,
       actorId,
       targetType: 'service-record',
-      targetId: String(input.id),
-      metadata: { admissionId: input.admissionId, code: input.code, quantity: input.quantity },
+      metadata: { id: input.id, admissionId: input.admissionId, code: input.code, quantity: input.quantity },
       ...meta,
     });
   });
@@ -188,8 +190,7 @@ export async function update(
       action: AUDIT.registroActualizado,
       actorId,
       targetType: 'service-record',
-      targetId: String(id),
-      metadata: { admissionId: actual.admissionId, cambios: Object.keys(input) },
+      metadata: { id, admissionId: actual.admissionId, cambios: Object.keys(input) },
       ...meta,
     });
   });
@@ -213,8 +214,7 @@ export async function remove(id: number, actorId: string, meta: RequestMeta): Pr
       action: AUDIT.registroBorrado,
       actorId,
       targetType: 'service-record',
-      targetId: String(id),
-      metadata: { admissionId: actual.admissionId },
+      metadata: { id, admissionId: actual.admissionId },
       ...meta,
     });
   });

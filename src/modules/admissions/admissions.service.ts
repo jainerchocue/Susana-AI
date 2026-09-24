@@ -80,11 +80,16 @@ export async function create(
       actorId: actor.id,
       action: AUDIT.registroCreado,
       targetType: 'admission',
-      targetId: String(input.id),
+      // `auditLog.targetId` es UUID en BD: los ids del HIS son enteros, asi
+      // que viajan solo en `metadata` (igual en el resto de este modulo).
       metadata: { id: input.id, campos: Object.keys(input) },
       ...meta,
     });
-    return creado;
+    // `creado` es la fila TAL COMO quedo el INSERT, antes de que
+    // `recalcularDerivados` la tocara (patientSex/Regime/Zone/Age, triageLevel,
+    // waitMinutes...): sin releerla, la respuesta devolveria esos derivados en
+    // null aunque la BD ya los tenga bien. Misma `tx`: ve sus propios cambios.
+    return tx.admission.findUniqueOrThrow({ where: { id: creado.id }, include: admissionWithTriageInclude });
   });
 
   // Un ingreso nuevo puede mover `max(admittedAt)`: invalida SIEMPRE, es solo
@@ -113,17 +118,20 @@ export async function update(
 
   const admission = await prisma.$transaction(async (tx) => {
     // `update` (no `updateMany`) lanza P2025 si no existe -> 404 automatico.
-    const actualizado = await tx.admission.update({ where: { id }, data, include: admissionWithTriageInclude });
+    // No hace falta `include` aqui: se relee completa despues de recalcular.
+    await tx.admission.update({ where: { id }, data });
     await recalcularDerivados(tx, { admissionIds: [id] });
     await auditarEnTx(tx, {
       actorId: actor.id,
       action: AUDIT.registroActualizado,
       targetType: 'admission',
-      targetId: String(id),
       metadata: { id, campos: Object.keys(input) },
       ...meta,
     });
-    return actualizado;
+    // Misma razon que en `create()`: `recalcularDerivados` corre DESPUES de
+    // este UPDATE, asi que la fila devuelta por el propio UPDATE ya esta
+    // obsoleta para triageLevel/waitMinutes/etc.
+    return tx.admission.findUniqueOrThrow({ where: { id }, include: admissionWithTriageInclude });
   });
 
   if (input.admittedAt !== undefined) invalidarFechaReferencia();
@@ -155,7 +163,6 @@ export async function remove(id: number, actor: Actor, meta: RequestMeta): Promi
       actorId: actor.id,
       action: AUDIT.registroBorrado,
       targetType: 'admission',
-      targetId: String(id),
       metadata: { id },
       ...meta,
     });
@@ -186,13 +193,12 @@ async function escribirFirstCare(
   meta: RequestMeta,
 ): Promise<PublicAdmission> {
   const admission = await prisma.$transaction(async (tx) => {
-    const actualizado = await tx.admission.update({
+    await tx.admission.update({
       // Mismo motivo que en `update()`: al limpiar `firstCareAt`, el UPDATE
       // compartido deja de casar (exige `firstCareAt IS NOT NULL`) y no
       // resetea `waitMinutes` por si solo.
       data: firstCareAt === null ? { firstCareAt, waitMinutes: null } : { firstCareAt },
       where: { id },
-      include: admissionWithTriageInclude,
     });
     // `waitMinutes` depende de `firstCareAt` (triage -> primera atencion).
     await recalcularDerivados(tx, { admissionIds: [id] });
@@ -200,11 +206,11 @@ async function escribirFirstCare(
       actorId: actor.id,
       action: AUDIT.registroActualizado,
       targetType: 'admission',
-      targetId: String(id),
       metadata: { id, campos: ['firstCareAt'] },
       ...meta,
     });
-    return actualizado;
+    // Se relee tras recalcular (mismo motivo que en `create()`/`update()`).
+    return tx.admission.findUniqueOrThrow({ where: { id }, include: admissionWithTriageInclude });
   });
 
   return toPublicAdmission(admission);

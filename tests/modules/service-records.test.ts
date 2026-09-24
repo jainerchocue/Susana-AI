@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Response } from 'supertest';
 import { api, cargarFixturesHis, crearUsuarioConRol, getApp, limpiar, prisma } from '../helpers';
+
+/** `res.body` es `any` (supertest): centraliza el cast en un solo sitio en vez de esparcirlo por cada `it`. */
+function idsDe(res: Response): number[] {
+  return (res.body.data as Array<{ id: number }>).map((r) => r.id);
+}
 
 /**
  * CRUD de `service-records` (his_service_records, Servicios.txt, TC3).
@@ -119,28 +125,28 @@ describe('CRUD de service-records (fixtures pequeños, TC3)', () => {
       const porIngreso = await api()
         .get('/api/v1/service-records?admissionId=5001')
         .set('Authorization', `Bearer ${usuario.token}`);
-      expect(porIngreso.body.data.map((r: { id: number }) => r.id).sort()).toEqual([1, 2]);
+      expect(idsDe(porIngreso).sort()).toEqual([1, 2]);
 
       const porCodigo = await api()
         .get('/api/v1/service-records?code=902210')
         .set('Authorization', `Bearer ${usuario.token}`);
-      expect(porCodigo.body.data.map((r: { id: number }) => r.id).sort()).toEqual([1, 3, 4]);
+      expect(idsDe(porCodigo).sort()).toEqual([1, 3, 4]);
 
       const porEspecialidad = await api()
         .get('/api/v1/service-records?specialty=PEDIATRIA')
         .set('Authorization', `Bearer ${usuario.token}`);
-      expect(porEspecialidad.body.data.map((r: { id: number }) => r.id)).toEqual([3]);
+      expect(idsDe(porEspecialidad)).toEqual([3]);
 
       const porArea = await api()
         .get('/api/v1/service-records?area=CIRUGIA')
         .set('Authorization', `Bearer ${usuario.token}`);
-      expect(porArea.body.data.map((r: { id: number }) => r.id)).toEqual([5]);
+      expect(idsDe(porArea)).toEqual([5]);
 
       // providedAt de OidS=5 (806104) = 2026-06-05 14:00 local = 19:00 UTC.
       const porRango = await api()
         .get('/api/v1/service-records?desde=2026-06-05T00:00:00.000Z&hasta=2026-06-06T00:00:00.000Z')
         .set('Authorization', `Bearer ${usuario.token}`);
-      expect(porRango.body.data.map((r: { id: number }) => r.id)).toEqual([5]);
+      expect(idsDe(porRango)).toEqual([5]);
     });
 
     it('un query param desconocido responde 422', async () => {
