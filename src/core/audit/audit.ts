@@ -38,6 +38,17 @@ export const AUDIT = {
   stockActualizado: 'medication.stock.updated',
   exportacion: 'data.export',
   accesoSensible: 'data.sensitive.read',
+  // ─── CRUD imports y HIS (TC0-TC5) ────────────────────────────────────────
+  importacionIniciada: 'data.import.started',
+  importacionTerminada: 'data.import.finished',
+  importacionBorrada: 'data.import.deleted',
+  registroCreado: 'data.record.created',
+  registroActualizado: 'data.record.updated',
+  registroBorrado: 'data.record.deleted',
+  alertaCreada: 'alert.created',
+  alertaBorrada: 'alert.deleted',
+  reglaAlertaActualizada: 'alert.rule.updated',
+  stockBorrado: 'medication.stock.deleted',
 } as const;
 
 export type AuditAction = (typeof AUDIT)[keyof typeof AUDIT];

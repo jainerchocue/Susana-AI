@@ -150,7 +150,16 @@ export async function update(
 
   const user = await prisma.$transaction(async (tx) => {
     const actualizado = await tx.user.update({ where: { id }, data: input, include: userWithRolesInclude });
-    // Suspender debe cortar el acceso ya, no cuando caduque la sesion.
+    // Suspender (o cualquier status != ACTIVE) debe cortar el acceso YA, no
+    // cuando caduque la sesion. `authenticate.ts` ya revalida `status` contra
+    // la BD en cada peticion y por si sola bastaria para nuestra propia API,
+    // pero las rutas de Better Auth (`/auth/get-session`, `/auth/change-password`,
+    // `/auth/update-user`, `/auth/two-factor/*`) son la propia libreria: NO
+    // pasan por `authenticate` y no conocen nuestro `status`. Sin este borrado,
+    // una cuenta suspendida podria seguir cambiando su contraseña o
+    // desactivando su 2FA con la sesion vieja. Se deja la revalidacion de
+    // `authenticate` como defensa en profundidad (cubre, ademas, el hueco
+    // entre esta escritura y la proxima consulta a `sessions` si esto fallara).
     if (input.status && input.status !== UserStatus.ACTIVE) {
       await tx.session.deleteMany({ where: { userId: id } });
     }

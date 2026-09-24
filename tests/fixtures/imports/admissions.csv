@@ -1,0 +1,4 @@
+OidIngreso,ConsecutivoIngreso,IdPaciente,ClaseIngreso,ViaIngreso,TipoRiesgo,FechaIngreso,FechaHospitalizacion,OidTriageA,CodigoCama,NombreCama,NombreGrupoCama,NombreSubgrupoCama,CodigoDiagnostico,NombreDiagnostico
+"9000001","1","9000001","Ambulatorio","Urgencias","Enfermedad General","2026-06-01 08:00:00","","9000001","U-90","CAMA U-90 URGENCIAS ADULTOS","URGENCIAS","URGENCIAS ADULTOS","S520","FRACTURA, DESPLAZADA"
+"9000002","2","9000002","Hospitalario","Urgencias","Enfermedad General","2026-06-02 08:00:00","","9000002","V-90","CAMA V-90 VIRTUAL URGENCIAS","URGENCIAS","URGENCIAS ADULTOS","",""
+"9000003","3","9000003","Ambulatorio","Urgencias","Enfermedad General","2026-06-03 08:00:00","","","U-91","CAMA U-91 URGENCIAS ADULTOS","URGENCIAS","URGENCIAS ADULTOS","",""

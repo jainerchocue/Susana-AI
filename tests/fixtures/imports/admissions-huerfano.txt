@@ -1,0 +1,3 @@
+OidIngreso|ConsecutivoIngreso|IdPaciente|ClaseIngreso|ViaIngreso|TipoRiesgo|FechaIngreso|FechaHospitalizacion|OidTriageA|CodigoCama|NombreCama|NombreGrupoCama|NombreSubgrupoCama|CodigoDiagnostico|NombreDiagnostico
+9000201|1|9000001|Ambulatorio|Urgencias|Enfermedad General|2026-06-10 08:00:00|||U-92|CAMA U-92 URGENCIAS ADULTOS|URGENCIAS|URGENCIAS ADULTOS||
+9000202|2|9999999|Ambulatorio|Urgencias|Enfermedad General|2026-06-11 08:00:00|||U-93|CAMA U-93 URGENCIAS ADULTOS|URGENCIAS|URGENCIAS ADULTOS||

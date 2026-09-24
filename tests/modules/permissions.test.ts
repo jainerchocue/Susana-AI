@@ -27,9 +27,8 @@ describe('Modulo de permisos (T3)', () => {
     const res = await api().get('/api/v1/permissions').set('Authorization', `Bearer ${admin.token}`);
 
     expect(res.status).toBe(200);
-    const acciones = res.body.data.groups.flatMap((g: { permissions: { action: string }[] }) =>
-      g.permissions.map((p) => p.action),
-    );
+    const grupos = res.body.data.groups as Array<{ permissions: Array<{ action: string }> }>;
+    const acciones = grupos.flatMap((g) => g.permissions.map((p) => p.action));
 
     expect(res.body.data.total).toBe(PERMISSION_LIST.length);
     expect(acciones).toHaveLength(PERMISSION_LIST.length);
@@ -44,7 +43,8 @@ describe('Modulo de permisos (T3)', () => {
     expect(filaComodin).not.toBeNull();
 
     const res = await api().get('/api/v1/permissions').set('Authorization', `Bearer ${admin.token}`);
-    const ids = res.body.data.groups.flatMap((g: { permissions: { id: string }[] }) => g.permissions.map((p) => p.id));
+    const grupos = res.body.data.groups as Array<{ permissions: Array<{ id: string }> }>;
+    const ids = grupos.flatMap((g) => g.permissions.map((p) => p.id));
     expect(ids).not.toContain(filaComodin!.id);
   });
 });

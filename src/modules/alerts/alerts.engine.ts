@@ -42,6 +42,14 @@ export interface Umbrales {
   occupancyPct: number;
   criticalOccupancyPct: number;
   waitMinutes: number;
+  /**
+   * Umbral CRITICAL de espera. Antes era siempre `waitMinutes * 2` (formula
+   * fija); TC5 lo independiza para que `AlertRule.criticalThreshold` de
+   * LONG_WAIT sea editable por API sin atarlo al de warning. `UMBRALES` (los
+   * valores de env, mas abajo) lo calcula igual que antes para no cambiar el
+   * comportamiento por defecto.
+   */
+  criticalWaitMinutes: number;
   demandSpikePct: number;
   surgeryCancellationPct: number;
 }
@@ -52,6 +60,7 @@ export const UMBRALES: Umbrales = {
   occupancyPct: env.ALERT_OCCUPANCY_PCT,
   criticalOccupancyPct: env.ALERT_CRITICAL_OCCUPANCY_PCT,
   waitMinutes: env.ALERT_WAIT_MINUTES,
+  criticalWaitMinutes: env.ALERT_WAIT_MINUTES * 2,
   demandSpikePct: env.ALERT_DEMAND_SPIKE_PCT,
   surgeryCancellationPct: env.ALERT_SURGERY_CANCELLATION_PCT,
 };
@@ -89,7 +98,7 @@ function reglasPara(u: Umbrales): Record<MetricKey, ReglaUmbral> {
       type: 'LONG_WAIT',
       direccion: 'sobre_maximo',
       warning: u.waitMinutes,
-      critical: u.waitMinutes * 2,
+      critical: u.criticalWaitMinutes,
     },
     'service.demandChangePct': {
       type: 'DEMAND_SPIKE',
@@ -141,14 +150,27 @@ function evaluarPunto(punto: MetricPoint, value: number, regla: ReglaUmbral): Al
   return null;
 }
 
-/** Evalua todos los puntos y devuelve los candidatos que superan algun umbral. */
-export function evaluarReglas(puntos: MetricPoint[], umbrales: Umbrales = UMBRALES): AlertCandidate[] {
+/**
+ * Evalua todos los puntos y devuelve los candidatos que superan algun umbral.
+ *
+ * `desactivadas` (TC5): tipos cuya `AlertRule.enabled` es false en BD. Una
+ * regla desactivada no genera candidatos; como su metrica sigue en
+ * `METRICAS_EVALUADAS`, `sincronizar()` resuelve cualquier alerta abierta que
+ * ya no aparezca entre los candidatos (alerts.service.ts#leerReglas).
+ */
+export function evaluarReglas(
+  puntos: MetricPoint[],
+  umbrales: Umbrales = UMBRALES,
+  desactivadas: ReadonlySet<AlertType> = new Set(),
+): AlertCandidate[] {
   const reglas = reglasPara(umbrales);
   const candidatos: AlertCandidate[] = [];
 
   for (const punto of puntos) {
     if (punto.value === 'insufficient_data') continue;
-    const candidato = evaluarPunto(punto, punto.value, reglas[punto.metric]);
+    const regla = reglas[punto.metric];
+    if (desactivadas.has(regla.type)) continue;
+    const candidato = evaluarPunto(punto, punto.value, regla);
     if (candidato) candidatos.push(candidato);
   }
 

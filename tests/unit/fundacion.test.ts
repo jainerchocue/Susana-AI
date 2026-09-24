@@ -36,6 +36,8 @@ describe('SYSTEM_ROLES · matriz de T1', () => {
       PERMISSIONS.services.read,
       PERMISSIONS.surgeries.read,
       PERMISSIONS.medications.read,
+      // Ampliacion C0/TC0: DIRECTOR suma acceso a datos de pacientes.
+      PERMISSIONS.patients.read,
     ],
     JEFE_SERVICIO: [
       PERMISSIONS.dashboard.read,

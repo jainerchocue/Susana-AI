@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env';
 import { auth } from '../src/core/auth/auth';
 import { PERMISSION_LIST, SYSTEM_ROLES, WILDCARD_PERMISSION } from '../src/core/rbac/permissions';
+import { ALERT_TYPES, UMBRALES_ALERTA_POR_DEFECTO } from '../src/modules/alerts/alerts.constants';
 
 /**
  * Seed idempotente: se puede correr las veces que haga falta.
@@ -24,6 +25,8 @@ async function main(): Promise<void> {
     });
   }
   console.log(`✓ ${definiciones.length} permisos sincronizados`);
+
+  await sembrarReglasDeAlertas();
 
   // 2) Roles de sistema.
   //
@@ -120,6 +123,24 @@ async function main(): Promise<void> {
   console.log('  ⚠ Cambia la contraseña tras el primer inicio de sesion.');
 
   await sembrarUsuariosDePrueba();
+}
+
+/**
+ * 1.5) Reglas de alertas (umbrales editables por API, TC5).
+ *
+ * SOLO crea las que faltan: una regla ya presente pudo haber sido editada por
+ * `PATCH /alerts/rules/:type` (activada/desactivada, umbrales propios), y el
+ * seed no debe pisar ese trabajo en cada redeploy.
+ */
+async function sembrarReglasDeAlertas(): Promise<void> {
+  let creadas = 0;
+  for (const type of ALERT_TYPES) {
+    const existente = await prisma.alertRule.findUnique({ where: { type } });
+    if (existente) continue;
+    await prisma.alertRule.create({ data: { type, ...UMBRALES_ALERTA_POR_DEFECTO[type] } });
+    creadas += 1;
+  }
+  console.log(`✓ ${creadas} regla(s) de alertas creada(s) (${ALERT_TYPES.length - creadas} ya existian)`);
 }
 
 /**

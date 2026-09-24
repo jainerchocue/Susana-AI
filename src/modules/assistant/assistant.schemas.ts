@@ -76,3 +76,22 @@ export const internalQuerySchema = z
 export type QuerySpec = z.infer<typeof querySpecSchema>;
 export type AskInput = z.infer<typeof askSchema>;
 export type InternalQueryInput = z.infer<typeof internalQuerySchema>;
+
+// ─── Esquemas de RESPUESTA (documentacion OpenAPI, TC0) ────────────────────
+// Forma exacta de `RespuestaAsistente` (assistant.service.ts): una fila por
+// consulta que NODE ejecuto (nunca lo que Python "dice" que obtuvo).
+const filaResultadoSchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.null()]));
+
+const consultaEjecutadaResponseSchema = z.object({
+  query: querySpecSchema,
+  columns: z.array(z.string()),
+  rows: z.array(filaResultadoSchema),
+  rowCount: z.number().int(),
+  truncated: z.boolean(),
+});
+
+export const assistantResponseSchema = z.object({
+  status: z.enum(['ok', 'cannot_answer']),
+  answer: z.string(),
+  queries: z.array(consultaEjecutadaResponseSchema),
+});

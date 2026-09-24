@@ -1,3 +1,4 @@
+import http from 'node:http';
 import path from 'node:path';
 import type { Express } from 'express';
 import request from 'supertest';
@@ -14,7 +15,46 @@ export async function getApp(): Promise<Express> {
   return appCache;
 }
 
-export const api = () => request(appCache!);
+let servidorCache: http.Server | null = null;
+
+/**
+ * Servidor HTTP real, creado una sola vez y reutilizado por `api()`.
+ *
+ * `supertest`, cuando se le pasa una app de Express "pelada" (una funcion, no
+ * un `http.Server`), crea un servidor nuevo y hace `.listen(0)` en un puerto
+ * aleatorio en CADA llamada a `.get()/.post()/...` (ver
+ * `node_modules/supertest/lib/test.js`, `serverAddress()`), y lo cierra al
+ * terminar esa peticion. Con archivos que hacen cientos de peticiones
+ * seguidas (la matriz RBAC pasa de 200), ese bind/close constante en
+ * `127.0.0.1` es la causa raiz de su intermitencia: de tarde en tarde, dos
+ * servidores efimeros seguidos chocan un puerto que el SO aun no libero
+ * (TIME_WAIT) y una peticion recibe la respuesta de OTRA -- un 404 de una
+ * ruta que no tiene nada que ver, o un login que falla sin motivo aparente.
+ * Reutilizar UN solo servidor ya escuchando elimina ese bind/close por
+ * peticion: `serverAddress()` solo llama a `.listen(0)` si el servidor
+ * TODAVIA no tiene direccion (`!app.address()`), asi que pasarle aqui un
+ * `http.Server` ya arrancado hace que las llamadas siguientes lo reutilicen.
+ *
+ * A proposito NO es `supertest.agent(app)`: ese wrapper ADEMAS guarda y
+ * reenvia cookies automaticamente entre peticiones (superagent `Agent`), lo
+ * que cambiaria el comportamiento de los tests que hoy dependen de NO llevar
+ * ninguna cookie salvo que la pongan a mano (p.ej. "sin sesion -> 401"). Un
+ * `http.Server` normal pasado a `request()` no activa ese guardado: sigue
+ * siendo el mismo `request(app)` de siempre, solo que sin crear un servidor
+ * nuevo en cada llamada. `.unref()` para que un servidor que queda abierto no
+ * le impida salir al proceso de test (mismo patron que `core/cache/redis.ts`).
+ */
+function servidorApi(): http.Server {
+  if (!servidorCache) {
+    if (!appCache) throw new Error('Llama a getApp() antes de api().');
+    servidorCache = http.createServer(appCache);
+    servidorCache.listen(0);
+    servidorCache.unref();
+  }
+  return servidorCache;
+}
+
+export const api = () => request(servidorApi());
 
 /** Prefijo de las rutas de Better Auth. */
 export const AUTH = '/api/v1/auth';

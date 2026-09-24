@@ -1,0 +1,2 @@
+OidIngreso|ConsecutivoIngreso|IdPaciente|ClaseIngreso|ViaIngreso|TipoRiesgoMalEscrito|FechaIngreso|FechaHospitalizacion|OidTriageA|CodigoCama|NombreCama|NombreGrupoCama|NombreSubgrupoCama|CodigoDiagnostico|NombreDiagnostico
+9000301|1|9000001|Ambulatorio|Urgencias|Enfermedad General|2026-06-12 08:00:00|||U-94|CAMA U-94 URGENCIAS ADULTOS|URGENCIAS|URGENCIAS ADULTOS||

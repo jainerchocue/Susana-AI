@@ -56,6 +56,17 @@ export const PERMISSIONS = {
   surgeries: {
     read: 'surgeries:read',
   },
+  patients: {
+    /// Sensible: cada lectura se audita como `data.sensitive.read` (CRUD HIS, TC2).
+    read: 'patients:read',
+  },
+  data: {
+    /// Subir CSV por `/imports/*` (TC1).
+    import: 'data:import',
+    /// Crear/editar/borrar registros HIS: patients, admissions, triages,
+    /// service-records, procedures, surgery-schedules y dispenses (TC2-TC4).
+    manage: 'data:manage',
+  },
 } as const;
 
 /** Comodin: quien lo tiene pasa cualquier chequeo de permisos. */
@@ -103,6 +114,9 @@ const DESCRIPTIONS: Record<string, string> = {
   'alerts:manage': 'Reconocer y resolver alertas',
   'services:read': 'Ver datos de servicios hospitalarios',
   'surgeries:read': 'Ver datos de cirugias programadas',
+  'patients:read': 'Ver datos de pacientes (sensible: se audita cada lectura)',
+  'data:import': 'Subir datos HIS por CSV',
+  'data:manage': 'Crear, editar y borrar registros HIS',
 };
 
 /** Lista plana para el seed y para el endpoint GET /permissions. */
@@ -149,6 +163,7 @@ export const SYSTEM_ROLES = {
       PERMISSIONS.services.read,
       PERMISSIONS.surgeries.read,
       PERMISSIONS.medications.read,
+      PERMISSIONS.patients.read,
     ] as string[],
   },
   JEFE_SERVICIO: {

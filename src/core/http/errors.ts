@@ -59,12 +59,13 @@ export class AppError extends Error {
     return new AppError(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_ERROR, message);
   }
 
-  static unsupportedMediaType(): AppError {
-    return new AppError(
-      HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-      ErrorCode.UNSUPPORTED_MEDIA_TYPE,
-      'El cuerpo debe enviarse como application/json.',
-    );
+  static unsupportedMediaType(message = 'El cuerpo debe enviarse como application/json.'): AppError {
+    return new AppError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ErrorCode.UNSUPPORTED_MEDIA_TYPE, message);
+  }
+
+  /** Un archivo subido (import CSV) supera `IMPORT_MAX_MB`. */
+  static payloadTooLarge(message = 'El archivo supera el tamaño maximo permitido.'): AppError {
+    return new AppError(HttpStatus.PAYLOAD_TOO_LARGE, ErrorCode.PAYLOAD_TOO_LARGE, message);
   }
 
   /** Python no responde: sin AGENT_URL, timeout o error de red. */

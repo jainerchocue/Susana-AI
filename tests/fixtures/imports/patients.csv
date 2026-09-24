@@ -1,0 +1,4 @@
+TipoDocumento,IdPaciente,NombrePaciente,FechaNacimiento,Sexo,Asegurador,Regimen,Departamento,Municipio,Zona
+"CC","9000001","ZE","1990-01-01","Masculino","EPS SURA, REGIONAL SUR","Contributivo","CAUCA","POPAYAN","Urbana"
+"CC","9000002","ZF","1985-05-12","Femenino","NUEVA EPS","Subsidiado","CAUCA","POPAYAN","Urbana"
+"CC","9000003","ZG","2000-09-30","Femenino","SURA","Contributivo","CAUCA","POPAYAN","Rural"

@@ -11,6 +11,17 @@ import { z } from 'zod';
 const envFile = path.resolve(process.cwd(), '.env');
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
 
+/**
+ * `DOCS_ENABLED` por defecto es `true`, EXCEPTO en produccion, donde por
+ * defecto es `false` salvo que se active de forma explicita (`DOCS_ENABLED=true`
+ * en el entorno). Un `.default()` de Zod no puede depender de otro campo, asi
+ * que el valor por defecto se resuelve aqui, antes de validar, sobre el
+ * `NODE_ENV` crudo (el mismo criterio que usara luego el propio schema).
+ */
+if (process.env.DOCS_ENABLED === undefined) {
+  process.env.DOCS_ENABLED = process.env.NODE_ENV === 'production' ? 'false' : 'true';
+}
+
 const csv = z
   .string()
   .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean));
@@ -255,6 +266,14 @@ const schema = z
     /** Job periodico del motor de alertas (T11). false en tests: el motor se ejercita a mano. */
     ALERT_EVAL_ENABLED: bool.default('true'),
     ALERT_EVAL_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+
+    // ─── Imports CSV por API (TC1) ───────────────────────────────────────────
+    /** Tamaño maximo de un archivo subido a `POST /imports/:table`. */
+    IMPORT_MAX_MB: z.coerce.number().int().positive().default(200),
+
+    // ─── Documentacion (/api/v1/docs, TC0) ───────────────────────────────────
+    /** Su valor por defecto (true salvo en produccion) se resuelve arriba, antes de parsear. */
+    DOCS_ENABLED: bool,
   })
   .superRefine((v, ctx) => {
     // Secretos de ejemplo: se rechazan en TODOS los entornos, no solo produccion.

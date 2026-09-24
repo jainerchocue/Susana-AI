@@ -15,6 +15,7 @@ export const HttpStatus = {
   SERVICE_UNAVAILABLE: 503,
   GATEWAY_TIMEOUT: 504,
   UNSUPPORTED_MEDIA_TYPE: 415,
+  PAYLOAD_TOO_LARGE: 413,
 } as const;
 
 export type HttpStatusCode = (typeof HttpStatus)[keyof typeof HttpStatus];
@@ -40,6 +41,8 @@ export const ErrorCode = {
   OAUTH_ERROR: 'OAUTH_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
+  /** El cuerpo (p. ej. un CSV de `POST /imports/:table`) supera `IMPORT_MAX_MB`. */
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   /** Python no responde o rechaza la conexion (timeout, red, sin AGENT_URL). */
   AGENT_UNAVAILABLE: 'AGENT_UNAVAILABLE',
   /** Python respondio, pero con un HTTP no-2xx o un cuerpo que no pasa Zod. */

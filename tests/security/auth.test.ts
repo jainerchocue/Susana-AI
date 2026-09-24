@@ -19,7 +19,7 @@ const ORIGEN_PRUEBA = 'http://localhost:5173';
 
 /** Cookie de sesion (solo el par nombre=valor) de un `set-cookie` con `session_token`. */
 function cookieDeSesion(cabeceras: Record<string, unknown>): string {
-  const crudas = cabeceras['set-cookie'] as unknown as string[] | undefined;
+  const crudas = cabeceras['set-cookie'] as string[] | undefined;
   const sesion = crudas?.find((c) => c.includes('session_token'));
   if (!sesion) throw new Error('Sin cookie de sesion en la respuesta');
   return sesion.split(';')[0]!;
@@ -351,7 +351,7 @@ describe('Autenticacion · Better Auth con credenciales', () => {
           .set('Origin', ORIGEN_PRUEBA)
           .send({ email, password: PASSWORD });
         expect(entrada.status).toBe(200);
-        const cookie = cookieDeSesion(entrada.headers as Record<string, unknown>);
+        const cookie = cookieDeSesion(entrada.headers);
 
         const salida = await cliente.post(`${AUTH}/sign-out`).set('Origin', ORIGEN_PRUEBA).set('Cookie', cookie);
         expect(salida.status).toBe(200);

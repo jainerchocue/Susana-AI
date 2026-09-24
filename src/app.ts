@@ -17,6 +17,7 @@ import { loadRoutes } from './core/router/autoload';
 import { ok } from './core/http/api-response';
 import healthRouter from './modules/health/health.routes';
 import { construirOpenApi } from './core/openapi/openapi';
+import { CSP_DOCS, paginaDocs } from './core/openapi/docs';
 
 /**
  * Ensamblado de la app. El ORDEN de los middlewares importa y no debe
@@ -133,8 +134,23 @@ export async function createApp(): Promise<Express> {
   );
 
   // Contrato OpenAPI derivado de los mismos schemas de Zod que validan: no
-  // puede desincronizarse del codigo (auditoria M-09).
-  app.get(`${env.API_PREFIX}/openapi.json`, (_req, res) => res.json(construirOpenApi()));
+  // puede desincronizarse del codigo (auditoria M-09). Async: fusiona el
+  // esquema de Better Auth, que se genera con una llamada de servidor.
+  app.get(`${env.API_PREFIX}/openapi.json`, async (_req, res) => res.json(await construirOpenApi()));
+
+  /**
+   * `GET {API_PREFIX}/docs`: Scalar sobre `openapi.json`. Apagable con
+   * `DOCS_ENABLED=false` (produccion, por defecto). CSP propia SOLO para esta
+   * ruta: se fija aqui, en la respuesta, DESPUES de que `helmet` ya puso la
+   * suya (`default-src 'none'`) — `setHeader` sustituye el valor anterior, y
+   * ninguna otra ruta pasa por aqui, asi que su CSP no cambia.
+   */
+  if (env.DOCS_ENABLED) {
+    app.get(`${env.API_PREFIX}/docs`, (_req, res) => {
+      res.setHeader('Content-Security-Policy', CSP_DOCS);
+      res.type('html').send(paginaDocs());
+    });
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);

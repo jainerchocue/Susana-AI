@@ -1,0 +1,23 @@
+Interpreta resultados de una consulta hospitalaria.
+
+Reglas:
+- Usa ÚNICAMENTE los valores presentes en rows.
+- No inventes ni redondees de forma engañosa.
+- Si rows está vacío: indica que los datos no permiten calcular el indicador.
+- Recomendaciones: apoyo a la decisión operativa, nunca órdenes clínicas ni "comprar inmediatamente".
+- No menciones pacientes identificables.
+
+Pregunta: {question}
+Intent: {intent}
+Columnas: {columns}
+Filas (máx 50): {rows}
+Metadata: {metadata}
+
+Devuelve SOLO JSON:
+{{
+  "answer": "...",
+  "insights": ["..."],
+  "recommendations": ["..."],
+  "visualization": {{"type":"bar","x":"...","y":"...","title":"..."}},
+  "confidence": "HIGH"
+}}

@@ -19,13 +19,26 @@ const METODOS_SEGUROS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const METODOS_CON_CUERPO = new Set(['POST', 'PUT', 'PATCH']);
 
 /**
- * Exige `application/json` cuando la peticion trae cuerpo. Sin esto, un body
- * mal declarado (text/plain, form-data...) pasa de largo por `express.json()`
- * sin parsear y el handler lee `undefined` donde esperaba un objeto: en vez de
- * un 422 claro de Zod, se cuela un error confuso mas adelante.
+ * `POST {API_PREFIX}/imports/*`: la UNICA ruta que recibe un cuerpo
+ * `text/csv` (el archivo subido, en crudo). En cualquier otra ruta un CSV
+ * sigue siendo un 415: no se abre la puerta a toda la API por el bien de
+ * un solo modulo. `startsWith` en vez de una RegExp construida con un string
+ * dinamico (aunque `API_PREFIX` este validado por Zod): mas simple y sin
+ * disparar el lint de "RegExp no literal".
+ */
+const PREFIJO_IMPORTS = `${env.API_PREFIX}/imports/`;
+
+/**
+ * Exige `application/json` cuando la peticion trae cuerpo (y `text/csv` para
+ * `POST /imports/*`, ver arriba). Sin esto, un body mal declarado (text/plain,
+ * form-data...) pasa de largo por `express.json()` sin parsear y el handler
+ * lee `undefined` donde esperaba un objeto: en vez de un 422 claro de Zod, se
+ * cuela un error confuso mas adelante.
  *
  * Va justo antes de `express.json()` en app.ts (despues del handler de Better
- * Auth, que consume su propio body crudo).
+ * Auth, que consume su propio body crudo). `express.json()` solo parsea
+ * cuerpos `application/json`: uno `text/csv` que pase de aqui llega intacto
+ * (sin consumir) al stream que lee el modulo de imports.
  */
 export const requireJson: RequestHandler = (req, _res, next) => {
   if (!METODOS_CON_CUERPO.has(req.method)) return next();
@@ -33,6 +46,14 @@ export const requireJson: RequestHandler = (req, _res, next) => {
   const tieneCuerpo =
     Number(req.headers['content-length'] ?? 0) > 0 || req.headers['transfer-encoding'] !== undefined;
   if (!tieneCuerpo) return next();
+
+  if (req.method === 'POST' && req.path.startsWith(PREFIJO_IMPORTS)) {
+    if (!req.is('text/csv')) {
+      next(AppError.unsupportedMediaType('El cuerpo debe enviarse como text/csv.'));
+      return;
+    }
+    return next();
+  }
 
   if (!req.is('application/json')) {
     next(AppError.unsupportedMediaType());

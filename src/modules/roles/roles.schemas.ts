@@ -40,3 +40,15 @@ export const setRolePermissionsSchema = z.strictObject({
 export type ListRolesQuery = z.infer<typeof listRolesQuerySchema>;
 export type CreateRoleInput = z.infer<typeof createRoleSchema>;
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
+
+// ─── Esquemas de RESPUESTA (documentacion OpenAPI, TC0) ────────────────────
+// Forma exacta de `PublicRole` (roles.service.ts).
+export const publicRoleResponseSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  isSystem: z.boolean(),
+  permissions: z.array(z.string()),
+  usersCount: z.number().int(),
+  createdAt: z.string().datetime(),
+});
