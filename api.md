@@ -295,6 +295,21 @@ nivel de triage?" (DIRECTOR, `assistant:advanced`):
    "rowCount":5,"truncated":false}]},"meta":{"requestId":"...","timestamp":"..."}}
 ```
 
+Desde la versión con gráficas, `data` trae además `visual` (o `null`): **qué**
+dibujar, sin datos. Los valores se toman de `queries[visual.queryIndex].rows`
+(lo que ejecutó el backend, que ya validó que cada columna citada existe);
+solo `projection.points` trae cifras propias, y se dibujan como proyección.
+Lo pinta `src/components/chat/AssistantVisual.tsx`.
+```json
+"visual": {"type": "bar", "title": "Ingresos hospitalarios por unidad",
+ "subtitle": "este mes (del 1 al 21 de septiembre de 2026)", "queryIndex": 0,
+ "x": "unit", "xLabel": "Unidad",
+ "columns": [{"key": "count_all", "label": "Ingresos", "decimals": 0}],
+ "valueLabels": {"URGENCIAS": "Urgencias"}}
+```
+`type`: `kpi` (1 fila) · `bar` · `line` (con `grain`, `fillMissing`, `omit` y
+`projection` opcionales) · `table`.
+
 La API interna del agente (`POST /internal/agent/query`) vive en el segundo
 puerto y **no** aparece aquí ni en `openapi.json`: contrato completo en
 `docs/agent-integration.md`.

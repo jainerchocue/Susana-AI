@@ -1,6 +1,7 @@
 import type { ChatMessage } from '@/types'
 import { Card, CardBody, ErrorState, Spinner } from '@/components/ui'
 import { IconSparkles } from '@/components/ui/icons'
+import { AssistantVisual } from './AssistantVisual'
 
 function AssistantMessageContent({ message }: { message: ChatMessage }) {
   if (message.status === 'pending') {
@@ -27,7 +28,12 @@ function AssistantMessageContent({ message }: { message: ChatMessage }) {
 
   const text = message.answer ? message.answer.answer : message.text
 
-  return <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{text}</p>
+  return (
+    <>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-900">{text}</p>
+      {message.answer && <AssistantVisual answer={message.answer} />}
+    </>
+  )
 }
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
