@@ -107,6 +107,28 @@ def consulta_uci_alternativa(
     }
 
 
+def consulta_unidades_actividad(
+    catalog: list[dict[str, Any]],
+    *,
+    solo_hoy: bool = False,
+    max_rows: int = 15,
+) -> dict[str, Any] | None:
+    """Ranking real de unidades (para contextualizar cuando no hay UCI)."""
+    if "admissions" not in _datasets(catalog):
+        return None
+    filters: list[dict[str, Any]] = []
+    if solo_hoy:
+        filters.append({"field": "admitted_at", "op": "gte", "value": _inicio_hoy_iso()})
+    return {
+        "dataset": "admissions",
+        "metrics": [{"agg": "count"}],
+        "groupBy": [{"field": "unit"}],
+        "filters": filters,
+        "orderBy": [{"ref": "metric:0", "dir": "desc"}],
+        "limit": min(max_rows, 20),
+    }
+
+
 def consulta_inventario_bajo(
     catalog: list[dict[str, Any]],
     max_rows: int = 20,

@@ -22,6 +22,7 @@ from app.bridge.dsl_planner import (
     _umbral_dias,
     consulta_serie_temporal,
     consulta_uci_alternativa,
+    consulta_unidades_actividad,
     elegir_consulta,
     intent_desde_pregunta,
 )
@@ -435,36 +436,79 @@ async def handle_ask(
                 rows = list(extra.get("rows") or [])
                 break
 
-    # Inventario: filtrar por umbral de días en el agente
-    if rows and ("inventario" in qn or "stock" in qn or "medic" in qn) and str(
-        query.get("dataset")
-    ) == "alerts":
+    # Inventario: filtrar por umbral; si ninguno califica, informar el menor real
+    inventario_contexto: str | None = None
+    if ("inventario" in qn or ("medic" in qn and "menos" in qn)) and str(query.get("dataset")) == "alerts":
         umbral = _umbral_dias(qn, 5)
+        crudas = [r for r in rows if isinstance(r, dict)]
         filtradas = []
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
+        for r in crudas:
             dias = safe_number(r.get("min_value") if r.get("min_value") is not None else r.get("value"))
             if dias is not None and float(dias) <= umbral:
                 filtradas.append(r)
-        rows = filtradas
+        if filtradas:
+            rows = filtradas
+        elif crudas:
+            # Hay LOW_STOCK reales pero todos > umbral: responder con el menor (honesto)
+            def _dias_row(r: dict[str, Any]) -> float:
+                d = safe_number(r.get("min_value") if r.get("min_value") is not None else r.get("value"))
+                return float(d) if d is not None else 1e9
+
+            crudas_ord = sorted(crudas, key=_dias_row)
+            top = crudas_ord[0]
+            d0 = _dias_row(top)
+            codigo = top.get("scope_id") or "código"
+            inventario_contexto = (
+                f"No hay medicamentos con ≤{umbral} días de inventario en alertas activas. "
+                f"El menor stock alertado es {codigo} con ~{d0:.0f} días."
+            )
+            rows = []
+        else:
+            rows = []
 
     row_count = len(rows)
     columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
 
-    # Mensajes vacíos más útiles (no genéricos)
     empty_hint: str | None = None
-    if not rows:
+
+    # UCI sin match: consultar unidades reales del HIS (sin inventar)
+    if (not rows) and "uci" in qn and "admissions" in {
+        str(d.get("dataset")) for d in catalog if d.get("dataset")
+    }:
+        ov = consulta_unidades_actividad(catalog, solo_hoy=("hoy" in qn), max_rows=8)
+        if ov:
+            extra = await ejecutar_en_node(ticket, ov)
+            extra_rows = (extra or {}).get("rows") or []
+            if isinstance(extra_rows, list) and extra_rows:
+                nombres = []
+                for r in extra_rows[:5]:
+                    if isinstance(r, dict) and r.get("unit") is not None:
+                        n = safe_number(r.get("count_all") or r.get("count"))
+                        nombres.append(
+                            f"{r.get('unit')}"
+                            + (f" ({int(n)})" if n is not None else "")
+                        )
+                empty_hint = (
+                    "En el HIS no aparece una unidad o subunidad etiquetada como UCI "
+                    + ("hoy. " if "hoy" in qn else "en este corte. ")
+                    + "Las unidades con más actividad son: "
+                    + "; ".join(nombres)
+                    + ". No invento ocupación de UCI si no está en los datos."
+                )
+
+    # Mensajes vacíos honestos
+    if not rows and empty_hint is None:
         if "uci" in qn:
             empty_hint = (
-                "No hay ingresos etiquetados como UCI en el HIS para ese corte "
-                "(ni por unidad ni por subunidad). Puede que la UCI figure con otro nombre "
-                "o que hoy aún no haya actividad registrada."
+                "No hay ingresos etiquetados como UCI en el HIS para ese corte. "
+                "No atribuyo camas de UCI sin respaldo en la base."
             )
+        elif inventario_contexto:
+            empty_hint = inventario_contexto
         elif "inventario" in qn or ("medic" in qn and "menos" in qn):
             empty_hint = (
-                "No hay alertas de inventario bajo (LOW_STOCK) activas por debajo del umbral. "
-                "Conviene revisar el panel de alertas o ejecutar la evaluación del motor de stock."
+                "No hay alertas LOW_STOCK activas en la base. "
+                "Sin esa señal del motor de alertas no estimo días de inventario."
             )
 
     tips = Recommender().recommend(intent, rows, columns) if rows else []
